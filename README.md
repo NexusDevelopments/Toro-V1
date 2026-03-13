@@ -80,6 +80,17 @@ docker run -d \
 
 ---
 
+#### Deploying on Railway:
+
+1. Push this repo to GitHub.
+2. In Railway, create a new project and choose Deploy from GitHub Repo.
+3. Select this repository and branch.
+4. Railway will use the included `railway.json` and `Dockerfile` automatically.
+5. Set environment variables as needed (for example `NODE_ENV=production`; `PORT` is provided by Railway automatically).
+6. Deploy and open the generated Railway domain.
+
+---
+
 ### Contributors / Developers
 
 | Name          | Role               | GitHub |

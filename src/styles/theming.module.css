@@ -20,20 +20,20 @@
 }
 
 .theme-default {
-  --nav-bg: #0a141bb7;
-  --nav-border: #17253ac5;
-  --search-border: #1f324e;
-  --search-bg: #141d2b;
-  --search-ph: #9baec8;
-  --search-color: #ecf6ff;
-  --settings-panel: #141d2b;
-  --settings-border: #233046;
-  --apps-bg: #141d2b;
-  --apps-border: #1f324e;
-  --apps-text: #ecf6ff;
-  --apps-ph: #9baec8;
-  --item-bg: #141d2b;
-  --item-border: #1f324e;
+  --nav-bg: #0c0405cc;
+  --nav-border: #3a1218;
+  --search-border: #5b1a23;
+  --search-bg: #17090b;
+  --search-ph: #dca6ad;
+  --search-color: #ffecef;
+  --settings-panel: #160708;
+  --settings-border: #45161d;
+  --apps-bg: #17090b;
+  --apps-border: #5b1a23;
+  --apps-text: #ffecef;
+  --apps-ph: #dca6ad;
+  --item-bg: #17090b;
+  --item-border: #5b1a23;
 }
 
 .theme-mocha {

@@ -1,12 +1,23 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import { themeConfig, meta } from '/src/utils/config';
 
 const OptionsContext = createContext();
 
+const DEFAULT_OPTIONS = {
+  ...themeConfig[0].value,
+  ...meta[0].value,
+};
+
 const getStoredOptions = () => {
   try {
-    return JSON.parse(localStorage.getItem('options') || '{}');
+    const stored = JSON.parse(localStorage.getItem('options') || '{}');
+    const merged = { ...DEFAULT_OPTIONS, ...stored };
+    if (!stored.themeName || stored.themeName === 'defaultTheme') {
+      return { ...merged, ...themeConfig[0].value };
+    }
+    return merged;
   } catch {
-    return {};
+    return DEFAULT_OPTIONS;
   }
 };
 

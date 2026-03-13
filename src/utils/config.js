@@ -2,34 +2,34 @@ import pkg from '../../package.json';
 
 export const themeConfig = [
   {
-    option: 'Midnight',
+    option: 'Toro Red',
     value: {
       theme: 'default',
       type: 'dark',
-      settingsContainerColor: '#18283e',
-      navItemActive: '#c1d4f1',
-      settingsSearchBar: '#3c475a',
-      settingsPanelItemBackgroundColor: '#405a77',
-      settingsDropdownColor: '#162337',
-      siteTextColor: '#a0b0c8',
-      bgDesignColor: '66, 69, 73',
-      glowWrapperColor: '255, 255, 255',
-      switchColor: '#ffffff1a',
-      switchEnabledColor: '#4c6c91',
-      bgColor: '#111827',
-      quickModalBgColor: '#252f3e',
-      paginationTextColor: '#9baec8',
+      settingsContainerColor: '#21090b',
+      navItemActive: '#ffd7db',
+      settingsSearchBar: '#3d1115',
+      settingsPanelItemBackgroundColor: '#54181f',
+      settingsDropdownColor: '#170507',
+      siteTextColor: '#f4d4d8',
+      bgDesignColor: '95, 15, 24',
+      glowWrapperColor: '255, 92, 105',
+      switchColor: '#3a1015',
+      switchEnabledColor: '#8f2935',
+      bgColor: '#090304',
+      quickModalBgColor: '#1b090c',
+      paginationTextColor: '#e9c2c7',
       paginationBorderColor: '#ffffff1c',
-      paginationBgColor: '#141d2b',
-      paginationSelectedColor: '#75b3e8',
+      paginationBgColor: '#170709',
+      paginationSelectedColor: '#b73245',
       themeName: 'defaultTheme',
       /* loader */
-      tabColor: "#111e2fb0",
-      tabOutline: "#344646",
-      barColor: "#09121e",
-      tabBarColor: "#070e15",
-      omninputColor: "#06080d8f",
-      menuColor: "#1a252f"
+      tabColor: "#160708b3",
+      tabOutline: "#3b1218",
+      barColor: "#0f0305",
+      tabBarColor: "#070203",
+      omninputColor: "#1005068f",
+      menuColor: "#22090d"
     },
   },
   {
@@ -225,8 +225,8 @@ export const meta = [
   {
     option: 'Default',
     value: {
-      tabName: `v5-${__ENVIRONMENT__}-${pkg.version}`,
-      tabIcon: './icon.svg',
+      tabName: 'Toro V1',
+      tabIcon: '/logo.svg',
     },
   },
   {
