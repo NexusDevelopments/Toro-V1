@@ -40,15 +40,13 @@ export const process = (input, decode = false, prType, engine = "https://www.goo
 
   switch (prType) {
     case 'uv':
-      prefix = upwefix;
+      prefix = eggowaffle;
       break;
     case 'scr':
       prefix = eggowaffle;
       break;
     default:
-      const url = check(input, engine);
-      const match = [...scrwlist].some(d => url.includes(d));
-      prefix = match ? eggowaffle : upwefix;
+      prefix = eggowaffle;
   }
 
   if (decode) {

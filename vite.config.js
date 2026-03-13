@@ -10,7 +10,6 @@ import { bareModulePath } from '@mercuryworkshop/bare-as-module3';
 import { libcurlPath } from '@mercuryworkshop/libcurl-transport';
 import { baremuxPath } from 'bare-mux-fork/node';
 import { scramjetPath } from '@mercuryworkshop/scramjet/path';
-import { uvPath } from '@titaniumnetwork-dev/ultraviolet';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -205,15 +204,6 @@ export default defineConfig(({ command }) => {
           { src: [normalizePath(resolve(baremuxPath, '*'))], dest: 'baremux' },
           { src: [normalizePath(resolve(scramjetPath, '*'))], dest: 'eggs' },
           useBare && { src: [normalizePath(resolve(bareModulePath, '*'))], dest: 'baremod' },
-          {
-            src: [
-              normalizePath(resolve(uvPath, 'uv.handler.js')),
-              normalizePath(resolve(uvPath, 'uv.client.js')),
-              normalizePath(resolve(uvPath, 'uv.bundle.js')),
-              normalizePath(resolve(uvPath, 'uv.sw.js')),
-            ],
-            dest: 'portal',
-          },
         ].filter(Boolean),
       }),
       isStatic && {
