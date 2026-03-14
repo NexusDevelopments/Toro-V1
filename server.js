@@ -123,10 +123,11 @@ app.setNotFoundHandler((req, reply) =>
     : reply.code(404).send({ error: "Not Found" })
 );
 
-const host = process.env.HOST || "0.0.0.0";
+// Always bind all interfaces in containers; platform-provided HOST values can be non-bindable.
+const host = "0.0.0.0";
 app
   .listen({ port, host })
-  .then(() => console.log(`Server running on ${port}`))
+  .then(() => console.log(`Server running on ${host}:${port}`))
   .catch((err) => {
     console.error('Server failed to start:', err);
     process.exit(1);
