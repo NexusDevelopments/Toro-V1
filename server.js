@@ -108,6 +108,7 @@ app.get("/assets/img/*", proxy(req => `https://dogeub-assets.pages.dev/img/${req
 app.get("/assets-fb/*", proxy(req => `https://dogeub-assets.pages.dev/img/server/${req.params["*"]}`, ""));
 app.get("/js/script.js", proxy(() => "https://byod.privatedns.org/js/script.js"));
 app.get("/ds", (req, res) => res.redirect("https://discord.gg/ZBef7HnAeg"));
+app.get('/health', async () => ({ ok: true }));
 app.get("/return", async (req, reply) =>
   req.query?.q
     ? fetch(`https://duckduckgo.com/ac/?q=${encodeURIComponent(req.query.q)}`)
@@ -123,4 +124,10 @@ app.setNotFoundHandler((req, reply) =>
 );
 
 const host = process.env.HOST || "0.0.0.0";
-app.listen({ port, host }).then(() => console.log(`Server running on ${port}`));
+app
+  .listen({ port, host })
+  .then(() => console.log(`Server running on ${port}`))
+  .catch((err) => {
+    console.error('Server failed to start:', err);
+    process.exit(1);
+  });
