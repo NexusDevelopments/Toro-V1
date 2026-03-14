@@ -15,7 +15,7 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const port = process.env.PORT || 2345;
+const port = Number(process.env.PORT) || 3000;
 const server = createServer();
 const bare = process.env.BARE !== "false" ? createBareServer("/seal/") : null;
 logging.set_level(logging.NONE);

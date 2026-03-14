@@ -23,6 +23,7 @@ FROM node:20-bookworm-slim AS runtime
 WORKDIR /app
 
 ENV NODE_ENV=production
+ENV PORT=3000
 
 # Install only production deps
 COPY package*.json ./
