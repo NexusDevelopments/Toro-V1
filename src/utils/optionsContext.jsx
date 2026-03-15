@@ -3,9 +3,16 @@ import { themeConfig, meta } from '/src/utils/config';
 
 const OptionsContext = createContext();
 
+const DEFAULT_ENGINE_OPTIONS = {
+  engineName: 'DuckDuckGo',
+  engine: 'https://duckduckgo.com/?q=',
+  engineIcon: 'https://duckduckgo.com/favicon.ico',
+};
+
 const DEFAULT_OPTIONS = {
   ...themeConfig[0].value,
   ...meta[0].value,
+  ...DEFAULT_ENGINE_OPTIONS,
 };
 
 const getStoredOptions = () => {

@@ -28,7 +28,7 @@ const scrwlist = new Set([
   )
 ]);
 
-export const process = (input, decode = false, prType, engine = "https://www.google.com/search?safe=off&q=") => {
+export const process = (input, decode = false, prType, engine = "https://duckduckgo.com/?q=") => {
   const upwefix = isStaticBuild 
     ? new URL('./portal/k12/', location.href).pathname
     : '/portal/k12/';

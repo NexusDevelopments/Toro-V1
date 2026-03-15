@@ -24,6 +24,35 @@ const Settings = () => {
     [panicEnabled, panicKey, updateOption],
   );
 
+  const setSearchEngine = useCallback(
+    (engineType) => {
+      if (engineType === 'google') {
+        updateOption(
+          {
+            engineName: 'Google',
+            engine: 'https://www.google.com/search?safe=off&q=',
+            engineIcon:
+              'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3c/Google_Favicon_2025.svg/120px-Google_Favicon_2025.svg.png',
+          },
+          true,
+        );
+        return;
+      }
+
+      updateOption(
+        {
+          engineName: 'DuckDuckGo',
+          engine: 'https://duckduckgo.com/?q=',
+          engineIcon: 'https://duckduckgo.com/favicon.ico',
+        },
+        true,
+      );
+    },
+    [updateOption],
+  );
+
+  const selectedEngine = options.engineName === 'Google' ? 'google' : 'duckduckgo';
+
   const onCaptureKey = useCallback(
     (e) => {
       e.preventDefault();
@@ -45,6 +74,35 @@ const Settings = () => {
   return (
     <SidebarLayout>
       <div className="mx-auto mt-10 w-full max-w-2xl px-6">
+        <h2 className="text-2xl font-semibold">Browser</h2>
+        <p className="mt-2 text-sm opacity-75">Choose your search engine for new searches.</p>
+
+        <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 p-5">
+          <p className="text-sm font-medium">Search Engine</p>
+          <div className="mt-3 flex gap-2">
+            <button
+              onClick={() => setSearchEngine('duckduckgo')}
+              className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${
+                selectedEngine === 'duckduckgo'
+                  ? 'border-white/40 bg-white/12'
+                  : 'border-white/20 hover:bg-white/10'
+              }`}
+            >
+              DuckDuckGo (Default)
+            </button>
+            <button
+              onClick={() => setSearchEngine('google')}
+              className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${
+                selectedEngine === 'google'
+                  ? 'border-white/40 bg-white/12'
+                  : 'border-white/20 hover:bg-white/10'
+              }`}
+            >
+              Google
+            </button>
+          </div>
+        </div>
+
         <h2 className="text-2xl font-semibold">Panic Button</h2>
         <p className="mt-2 text-sm opacity-75">
           Configure a key combo to instantly redirect to Clever.
