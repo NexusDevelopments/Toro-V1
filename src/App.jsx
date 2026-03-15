@@ -1,6 +1,5 @@
 import Routing from './Routing';
 import ReactGA from 'react-ga4';
-import Search from './pages/Search';
 import lazyLoad from './lazyWrapper';
 import NotFound from './pages/NotFound';
 import { useEffect, useMemo, memo } from 'react';
@@ -17,18 +16,21 @@ const importApps = () => import('./pages/Apps');
 const importGms = () => import('./pages/Apps2');
 const importSettings = () => import('./pages/Settings');
 const importUpdates = () => import('./pages/Updates');
+const importSearchPage = () => import('./pages/SearchPage');
 
 const Home = lazyLoad(importHome);
 const Apps = lazyLoad(importApps);
 const Apps2 = lazyLoad(importGms);
 const Settings = lazyLoad(importSettings);
 const Updates = lazyLoad(importUpdates);
+const SearchPage = lazyLoad(importSearchPage);
 const Player = lazyLoad(() => import('./pages/Player'));
 
 initPreload('/materials', importApps);
 initPreload('/docs', importGms);
 initPreload('/settings', importSettings);
 initPreload('/updates', importUpdates);
+initPreload('/search', importSearchPage);
 initPreload('/', importHome);
 
 function useTracking() {
@@ -50,7 +52,7 @@ const ThemedApp = memo(() => {
       { path: '/materials', element: <Apps /> },
       { path: '/docs', element: <Apps2 /> },
       { path: '/docs/r', element: <Player /> },
-      { path: '/search', element: <Search />},
+      { path: '/search', element: <SearchPage />},
       { path: '/settings', element: <Settings /> },
       { path: '/updates', element: <Updates /> },
       { path: '/portal/k12/*', element: <NotFound /> },
