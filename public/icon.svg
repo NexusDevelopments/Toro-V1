@@ -1,1 +1,22 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-cloud-lightning-icon lucide-cloud-lightning"><path d="M6 16.326A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 .5 8.973"/><path d="m13 12-3 5h4l-3 5"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">
+	<defs>
+		<linearGradient id="toroRedTop" x1="72" y1="142" x2="449" y2="183" gradientUnits="userSpaceOnUse">
+			<stop offset="0" stop-color="#ff2a5f"/>
+			<stop offset="1" stop-color="#ff5f86"/>
+		</linearGradient>
+		<linearGradient id="toroRedBottom" x1="204" y1="242" x2="294" y2="420" gradientUnits="userSpaceOnUse">
+			<stop offset="0" stop-color="#ff2456"/>
+			<stop offset="1" stop-color="#ff3a6f"/>
+		</linearGradient>
+	</defs>
+
+	<path
+		d="M64 202C92 146 149 118 220 118H420C442 118 452 142 440 158L401 205C389 221 371 230 352 230H192C175 230 163 237 153 254L129 296C121 310 102 309 95 296L70 252C62 237 59 219 64 202Z"
+		fill="url(#toroRedTop)"
+	/>
+
+	<path
+		d="M184 265C191 248 212 244 227 258L298 321C307 330 309 343 303 354L260 436C252 451 232 452 222 438L170 365C162 354 161 339 167 326L184 265Z"
+		fill="url(#toroRedBottom)"
+	/>
+</svg>
