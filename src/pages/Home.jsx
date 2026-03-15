@@ -1,17 +1,18 @@
-import Nav from '../layouts/Nav';
 import Search from '../components/SearchContainer';
 import Footer from '../components/Footer';
 import QuickLinks from '../components/QuickLinks';
+import SidebarLayout from '../layouts/SidebarLayout';
 import { memo } from 'react';
 
 const Home = memo(() => {
   return (
-    <>
-      <Nav />
-      <Search />
-      <QuickLinks />
-      <Footer />
-    </>
+    <SidebarLayout>
+      <div className="relative min-h-screen px-6 pt-10 pb-20">
+        <Search logo={false} cls="w-full max-w-4xl mx-auto flex flex-col items-center" />
+        <QuickLinks cls="w-full max-w-[40rem] mx-auto mt-10 flex flex-wrap justify-center gap-4" />
+        <Footer />
+      </div>
+    </SidebarLayout>
   );
 });
 

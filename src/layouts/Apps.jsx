@@ -1,4 +1,3 @@
-import Nav from '../layouts/Nav';
 import { useState, useMemo, useRef, useEffect, useCallback, memo, lazy, Suspense } from 'react';
 import { Search, ChevronDown, LayoutGrid } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -217,11 +216,8 @@ const AppLayout = () => {
   );
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden">
-      <Nav />
-      <div className={clsx('flex-1 overflow-y-auto', scrollCls)}>
-        <Apps />
-      </div>
+    <div className={clsx('min-h-screen overflow-y-auto', scrollCls)}>
+      <Apps />
     </div>
   );
 };

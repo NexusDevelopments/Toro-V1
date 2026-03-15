@@ -1,10 +1,10 @@
 import clsx from 'clsx';
 import { useState, useMemo, useCallback, useEffect } from 'react';
-import Nav from '../layouts/Nav';
 import theme from '../styles/theming.module.css';
 import { Search, HatGlasses, Palette, Globe, Wrench } from 'lucide-react';
 import { useOptions } from '/src/utils/optionsContext';
 import RenderSetting from '../components/Settings';
+import SidebarLayout from '../layouts/SidebarLayout';
 
 let asyncConfs = [];
 const baseConfigs = [
@@ -126,12 +126,8 @@ const Settings = () => {
     filtered.some((s) => s.keywords.some((kw) => kw.toLowerCase().includes(fq)));
 
   return (
-    <div className="flex flex-col h-screen">
-      <div className="shrink-0">
-        <Nav />
-      </div>
-
-      <div className="flex flex-1 overflow-hidden">
+    <SidebarLayout>
+      <div className="flex min-h-screen overflow-hidden">
         <div
           className={clsx(
             theme['settings-panelColor'],
@@ -203,7 +199,7 @@ const Settings = () => {
           <div className="flex-1 flex items-center justify-center text-sm">Loading...</div>
         )}
       </div>
-    </div>
+    </SidebarLayout>
   );
 };
 
