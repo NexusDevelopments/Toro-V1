@@ -26,7 +26,7 @@ const Logo = memo(({ options, action, width, height }) => {
 
   return (
     <img
-      src="/logo.svg"
+      src="/icon.svg"
       className={className}
       id="btn-logo"
       draggable="false"

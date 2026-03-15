@@ -22,19 +22,23 @@ const NewTab = ({ id, updateFn, options = {} }) => {
 
   return (
     <div className="h-[calc(100%-100px)] w-full flex p-6 gap-6">
-      <aside className="w-56 shrink-0 rounded-2xl border border-white/10 bg-black/30 p-3">
-        <div className="px-2 pt-1 pb-3 text-sm opacity-75">Toro V1</div>
-        <div className="flex flex-col gap-1.5">
+      <aside className="w-[4.5rem] shrink-0 rounded-2xl border border-white/10 bg-black/30 p-2">
+        <div className="flex justify-center pb-3 pt-1">
+          <img src="/icon.svg" alt="Toro" className="h-8 w-8 rounded-md" />
+        </div>
+        <div className="flex flex-col items-center gap-2">
           {links.map((item) => {
             const Icon = item.icon;
             return (
               <button
                 key={item.label}
                 onClick={item.action}
-                className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-white/10 transition-colors"
+                className="group relative flex h-11 w-11 items-center justify-center rounded-xl text-left text-sm hover:bg-white/10 hover:scale-105 transition-all duration-200"
               >
                 <Icon size={16} />
-                {item.label}
+                <span className="pointer-events-none absolute left-14 z-30 scale-95 rounded-md border border-white/10 bg-black/80 px-2 py-1 text-xs opacity-0 transition-all duration-200 group-hover:scale-100 group-hover:opacity-100">
+                  {item.label}
+                </span>
               </button>
             );
           })}

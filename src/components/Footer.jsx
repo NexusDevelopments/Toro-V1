@@ -1,12 +1,10 @@
-import { useOptions } from '../utils/optionsContext';
-import { Bookmark, HeartPlus } from 'lucide-react';
+import { Bookmark } from 'lucide-react';
 import { memo, useCallback, useState } from 'react';
 import Disc from './Discord';
 import clsx from 'clsx';
 import BookmarksModal from './Bookmarks';
 
 const Footer = memo(() => {
-  const { options } = useOptions();
   const [isBookmarksOpen, setIsBookmarksOpen] = useState(false);
 
   const handleDs = useCallback(() => {
@@ -19,20 +17,7 @@ const Footer = memo(() => {
 
   return (
     <div className="w-full fixed bottom-0 flex items-end justify-between p-2">
-      {options.donationBtn !== false && (
-        <a
-          href="https://ko-fi.com/I3I81MF4CH"
-          target="_blank"
-          rel="noopener noreferrer"
-          className={clsx(
-            'flex gap-1 items-center cursor-pointer',
-            'hover:-translate-y-0.5 duration-200',
-          )}
-        >
-          <HeartPlus className="w-4" />
-          Support us
-        </a>
-      )}
+      <div />
       <div className="flex gap-2 items-center">
         <div
           className={clsx(
@@ -51,7 +36,7 @@ const Footer = memo(() => {
           )}
           onClick={handleDs}
         >
-          <Disc className="w-4" fill={options.siteTextColor || '#a0b0c8'} />
+          <Disc className="w-4" fill="#f4d4d8" />
           Discord
         </div>
         <span className="text-gray-500">•</span>

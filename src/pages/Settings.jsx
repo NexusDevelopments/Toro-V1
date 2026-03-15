@@ -1,203 +1,86 @@
-import clsx from 'clsx';
-import { useState, useMemo, useCallback, useEffect } from 'react';
-import theme from '../styles/theming.module.css';
-import { Search, HatGlasses, Palette, Globe, Wrench } from 'lucide-react';
+import { useState, useCallback } from 'react';
 import { useOptions } from '/src/utils/optionsContext';
-import RenderSetting from '../components/Settings';
 import SidebarLayout from '../layouts/SidebarLayout';
-
-let asyncConfs = [];
-const baseConfigs = [
-  {
-    name: 'Privacy',
-    icon: HatGlasses,
-    keywords: ['title', 'cloak', 'cloaking', 'tab cloak', 'about', 'about:blank', 'blank'],
-    key: 'privacyConfig',
-  },
-  {
-    name: 'Customize',
-    icon: Palette,
-    keywords: [
-      'theme',
-      'color',
-      'appearance',
-      'ui',
-      'interface',
-      'games',
-      'pages',
-      'apps',
-      'scale',
-      'nav',
-      'navigation bar',
-      'nav bar',
-      'navbar',
-      'size',
-      'donate',
-      'donation',
-      'tabs bar',
-      'tab bar',
-    ],
-    key: 'customizeConfig',
-  },
-  {
-    name: 'Browsing',
-    icon: Globe,
-    keywords: ['tabs', 'tab', 'type', 'search engine',],
-    key: 'browsingConfig',
-  },
-  {
-    name: 'Advanced',
-    icon: Wrench,
-    keywords: [
-      'wisp',
-      'type',
-      'bare',
-      'leave confirm',
-      'debug',
-      'reset instance',
-      'experimental',
-      'inspect',
-      'clear cache',
-    ],
-    key: 'advancedConfig',
-  },
-];
 
 const Settings = () => {
   const { options, updateOption } = useOptions();
-  const [q, setQ] = useState('');
-  const [content, setContent] = useState('Privacy');
+  const [panicEnabled, setPanicEnabled] = useState(!!options.panicToggleEnabled);
+  const [panicKey, setPanicKey] = useState(options.panic?.key || '');
 
-  const [loaded, setLoaded] = useState(false);
-  useEffect(() => {
-    let m = true;
-    import('/src/data/settings.js').then((mod) => {
-      if (!m) return;
-      asyncConfs = baseConfigs.map((c) => ({ ...c, fn: mod[c.key] }));
-      setLoaded(true);
-    });
-    return () => {
-      m = false;
-    };
-  }, []);
-
-  const settings = useMemo(
-    () =>
-      loaded
-        ? asyncConfs.map(({ fn, ...c }) => ({
-            ...c,
-            items: Object.values(fn({ options, updateOption })).map(({ name, desc }) => ({
-              name,
-              desc,
-            })),
-          }))
-        : [],
-    [options, updateOption, loaded],
+  const savePanic = useCallback(
+    (enabled = panicEnabled, key = panicKey) => {
+      updateOption(
+        {
+          panicToggleEnabled: enabled,
+          panic: {
+            key,
+            url: 'https://www.clever.com',
+          },
+        },
+        true,
+      );
+      import('/src/utils/utils.js').then(({ panic }) => panic());
+    },
+    [panicEnabled, panicKey, updateOption],
   );
 
-  const fq = q.trim().toLowerCase();
-
-  const filtered = useMemo(
-    () =>
-      !fq
-        ? settings
-        : settings.filter(
-            ({ name, keywords, items }) =>
-              name.toLowerCase().includes(fq) ||
-              keywords.some((kw) => kw.toLowerCase().includes(fq)) ||
-              items.some((i) => i.name.toLowerCase().includes(fq)),
-          ),
-    [settings, fq],
+  const onCaptureKey = useCallback(
+    (e) => {
+      e.preventDefault();
+      const combo = [];
+      if (e.ctrlKey) combo.push('Ctrl');
+      if (e.altKey) combo.push('Alt');
+      if (e.shiftKey) combo.push('Shift');
+      if (e.metaKey) combo.push('Meta');
+      const key = e.key.length === 1 ? e.key.toUpperCase() : e.key;
+      if (!['Control', 'Alt', 'Shift', 'Meta'].includes(key)) combo.push(key);
+      const finalKey = combo.join('+');
+      if (!finalKey) return;
+      setPanicKey(finalKey);
+      savePanic(panicEnabled, finalKey);
+    },
+    [panicEnabled, savePanic],
   );
-
-  const matchCount = useMemo(
-    () =>
-      settings.reduce(
-        (c, s) => c + s.items.filter((i) => i.name.toLowerCase().includes(fq)).length,
-        0,
-      ),
-    [settings, fq],
-  );
-
-  const showKeywordTip =
-    !!fq &&
-    filtered.length > 0 &&
-    !filtered.some((s) => s.name.toLowerCase().includes(fq)) &&
-    filtered.some((s) => s.keywords.some((kw) => kw.toLowerCase().includes(fq)));
 
   return (
     <SidebarLayout>
-      <div className="flex min-h-screen overflow-hidden">
-        <div
-          className={clsx(
-            theme['settings-panelColor'],
-            theme[`theme-${options.theme || 'default'}`],
-            'w-60 shrink-0 overflow-y-auto p-2 pt-3',
-          )}
-        >
-          <div
-            className="flex items-center max-w-52 h-7 rounded-lg mx-auto px-2"
-            style={{ backgroundColor: options.settingsSearchBar || '#3c475a' }}
-          >
-            <Search className="w-4 mr-1.5" />
-            <input
-              type="text"
-              placeholder="Filter settings"
-              className="bg-transparent outline-hidden w-full text-sm"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-            />
-          </div>
+      <div className="mx-auto mt-10 w-full max-w-2xl px-6">
+        <h2 className="text-2xl font-semibold">Panic Button</h2>
+        <p className="mt-2 text-sm opacity-75">
+          Configure a key combo to instantly redirect to Clever.
+        </p>
 
-          {showKeywordTip && (
-            <div className="mt-2 text-xs text-gray-400 text-center px-2">
-              May contain what you're looking for
+        <div className="mt-6 rounded-2xl border border-white/10 bg-black/25 p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium">Enable Panic Redirect</p>
+              <p className="text-xs opacity-70">Redirect target: https://www.clever.com</p>
             </div>
-          )}
-          {fq && matchCount > 1 && (
-            <div className="mt-2 text-xs text-gray-400 text-center px-2">
-              Found {matchCount} matching settings
-            </div>
-          )}
-
-          <div className="flex flex-col gap-3 mt-5">
-            {filtered.map(({ name, icon: Icon, items }) => {
-              const matched = fq ? items.filter((i) => i.name.toLowerCase().includes(fq)) : [];
-              return (
-                <div
-                  key={name}
-                  className={clsx(
-                    'w-full flex flex-col rounded-xl duration-75 cursor-pointer px-5 py-2',
-                    content !== name && 'bg-transparent hover:bg-[#ffffff23]',
-                  )}
-                  style={{
-                    backgroundColor:
-                      content === name
-                        ? options.settingsPanelItemBackgroundColor || '#405a77'
-                        : undefined,
-                  }}
-                  onClick={() => setContent((prev) => (prev === name ? '' : name))}
-                >
-                  <div className="flex items-center h-6">
-                    <Icon className="w-5" />
-                    <p className="mx-4">{name}</p>
-                  </div>
-                  {matched.length > 0 && (
-                    <p className="ml-9 text-xs text-gray-400 truncate">
-                      {matched.map((i) => i.name).join(', ')}
-                    </p>
-                  )}
-                </div>
-              );
-            })}
+            <button
+              onClick={() => {
+                const next = !panicEnabled;
+                setPanicEnabled(next);
+                savePanic(next, panicKey);
+              }}
+              className="rounded-lg border border-white/20 px-3 py-1.5 text-sm hover:bg-white/10 transition-colors"
+            >
+              {panicEnabled ? 'On' : 'Off'}
+            </button>
           </div>
         </div>
 
-        {loaded ? (
-          <RenderSetting setting={content} />
-        ) : (
-          <div className="flex-1 flex items-center justify-center text-sm">Loading...</div>
-        )}
+        <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 p-5">
+          <p className="text-sm font-medium">Panic Key Combo</p>
+          <p className="mt-1 text-xs opacity-70">Click below, then press your key combination.</p>
+
+          <input
+            className="mt-3 w-full rounded-lg border border-white/20 bg-black/30 px-3 py-2 text-sm outline-none"
+            value={panicKey}
+            onKeyDown={onCaptureKey}
+            onChange={() => {}}
+            placeholder="Press a key combo (e.g. Ctrl+Shift+P)"
+          />
+        </div>
       </div>
     </SidebarLayout>
   );
