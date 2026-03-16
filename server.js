@@ -232,6 +232,93 @@ async function deleteBunnyCDNPullZone(apiKey, zoneId) {
   }
 }
 
+// --------------- Cloudflare Workers provider ---------------
+
+function getCFWorkersSupport() {
+  const accountId = String(process.env.CLOUDFLARE_ACCOUNT_ID || '').trim();
+  const apiToken = String(process.env.CLOUDFLARE_API_TOKEN || '').trim();
+  if (!accountId || !apiToken) {
+    return {
+      available: false,
+      accountId: null,
+      apiToken: null,
+      reason: 'Set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN (Workers Scripts: Edit permission) to enable this provider.',
+    };
+  }
+  return { available: true, accountId, apiToken, reason: '' };
+}
+
+async function _getCFSubdomain(accountId, apiToken) {
+  const resp = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/workers/subdomain`,
+    { headers: { Authorization: `Bearer ${apiToken}` } }
+  );
+  if (!resp.ok) {
+    const j = await resp.json().catch(() => ({}));
+    throw new Error(`Cloudflare API error ${resp.status}: ${j?.errors?.[0]?.message || ''}`);
+  }
+  const data = await resp.json();
+  const sub = data?.result?.subdomain;
+  if (!sub) throw new Error('No workers.dev subdomain found. Enable Workers on your Cloudflare account first.');
+  return sub;
+}
+
+async function createCloudflareWorker(accountId, apiToken, workerName, targetUrl) {
+  const subdomain = await _getCFSubdomain(accountId, apiToken);
+
+  // Minimal module-format Worker that proxies all requests to the target origin
+  const script = `export default {
+  async fetch(request) {
+    const target = new URL("${targetUrl.replace(/"/g, '\\"')}");
+    const incoming = new URL(request.url);
+    incoming.hostname = target.hostname;
+    incoming.protocol = target.protocol;
+    incoming.port = target.port;
+    const init = { method: request.method, headers: new Headers(request.headers), redirect: "follow" };
+    if (!["GET", "HEAD"].includes(request.method)) init.body = request.body;
+    return fetch(incoming.toString(), init);
+  }
+};`;
+
+  const form = new FormData();
+  form.append('script', new Blob([script], { type: 'application/javascript+module' }), 'worker.js');
+  form.append('metadata', new Blob([JSON.stringify({ main_module: 'worker.js' })], { type: 'application/json' }));
+
+  const uploadResp = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(workerName)}`,
+    { method: 'PUT', headers: { Authorization: `Bearer ${apiToken}` }, body: form }
+  );
+  if (!uploadResp.ok) {
+    const j = await uploadResp.json().catch(() => ({}));
+    if (uploadResp.status === 403)
+      throw new Error('API token lacks Workers Script Edit permission. Create a token with "Workers Scripts: Edit" at dash.cloudflare.com/profile/api-tokens.');
+    throw new Error(`Worker upload failed (${uploadResp.status}): ${j?.errors?.[0]?.message || ''}`);
+  }
+
+  // Enable workers.dev subdomain for this script
+  await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(workerName)}/subdomain`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: true }),
+    }
+  );
+
+  return { workerName, hostname: `${workerName}.${subdomain}.workers.dev` };
+}
+
+async function deleteCloudflareWorker(accountId, apiToken, workerName) {
+  try {
+    await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(workerName)}`,
+      { method: 'DELETE', headers: { Authorization: `Bearer ${apiToken}` } }
+    );
+  } catch {
+    // best-effort cleanup
+  }
+}
+
 function getCloudflaredSupport() {
   if (process.env.DISABLE_CLOUDFLARED === 'true') {
     return {
@@ -507,7 +594,7 @@ const maintenanceHtml = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF
 
 const devHtml = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Dev Panel</title><style>*{box-sizing:border-box;margin:0;padding:0}body{background:#090304;color:#f4d4d8;font-family:ui-sans-serif,system-ui,sans-serif;min-height:100vh;padding:24px}.wrap{max-width:900px;margin:0 auto}.card{background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(10px);border-radius:16px;padding:18px;margin-bottom:16px}h1{font-size:2rem;color:#ff7788;margin-bottom:14px}h2{font-size:1.05rem;margin-bottom:12px;color:#ffc7cf}input,textarea{width:100%;background:#130709;border:1px solid rgba(255,255,255,.2);border-radius:12px;color:#fff;padding:11px 12px;outline:none}textarea{min-height:92px;resize:vertical}button{background:linear-gradient(135deg,rgba(255,255,255,.15),rgba(255,255,255,.06));border:1px solid rgba(255,255,255,.26);color:#ffecef;border-radius:999px;padding:9px 14px;cursor:pointer}button:hover{border-color:rgba(255,255,255,.45)}.row{display:flex;gap:10px;flex-wrap:wrap}.muted{opacity:.65;font-size:.9rem}.hidden{display:none}ul{margin-top:10px;display:grid;gap:8px;padding-left:18px}</style></head><body><div class="wrap"><h1>Dev Panel</h1><div id="auth" class="card"><h2>Authenticate</h2><input id="pw" type="password" placeholder="Admin password" /><div style="height:10px"></div><button id="login">Enter Panel</button><div id="err" class="muted" style="color:#ff9aa8;margin-top:10px;display:none"></div></div><div id="panel" class="hidden"><div class="card"><h2>Maintenance Mode</h2><p class="muted">Blocks normal site routes and shows the maintenance screen. Dev and IP logs remain accessible.</p><div style="height:10px"></div><textarea id="maintMsg" placeholder="Maintenance message"></textarea><div style="height:10px"></div><div class="row"><button id="enableMaint">Enable Maintenance</button><button id="disableMaint">Disable Maintenance</button></div></div><div class="card"><h2>Add Update</h2><textarea id="updateText" placeholder="Write update text..."></textarea><div style="height:10px"></div><button id="addUpdate">Add Update</button><ul id="updates"></ul></div></div></div><script>let PASS='';function esc(s){return String(s||'').replace(/[&<>\"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[m]||m));}function setErr(t){const e=document.getElementById('err');if(!t){e.style.display='none';return;}e.style.display='block';e.textContent=t;}async function post(url,data){const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const j=await r.json().catch(()=>({}));if(!r.ok) throw new Error(j.error||('Request failed '+r.status));return j;}function paintUpdates(items){const ul=document.getElementById('updates');ul.innerHTML='';items.forEach(x=>{const li=document.createElement('li');li.innerHTML='<span>'+esc(x.text)+'</span>';ul.appendChild(li);});}document.getElementById('login').onclick=async()=>{setErr('');try{PASS=document.getElementById('pw').value||'';const r=await post('/dev/api/login',{password:PASS});document.getElementById('auth').classList.add('hidden');document.getElementById('panel').classList.remove('hidden');document.getElementById('maintMsg').value=r.state.maintenanceMessage||'';paintUpdates(r.state.updates||[]);}catch(e){setErr(e.message||'Authentication failed');}};document.getElementById('enableMaint').onclick=async()=>{try{const msg=document.getElementById('maintMsg').value.trim();await post('/dev/api/maintenance',{password:PASS,enabled:true,message:msg});alert('Maintenance enabled');}catch(e){alert(e.message||'Failed');}};document.getElementById('disableMaint').onclick=async()=>{try{await post('/dev/api/maintenance',{password:PASS,enabled:false,message:''});alert('Maintenance disabled');}catch(e){alert(e.message||'Failed');}};document.getElementById('addUpdate').onclick=async()=>{try{const text=document.getElementById('updateText').value.trim();if(!text)return;const r=await post('/dev/api/updates/add',{password:PASS,text});document.getElementById('updateText').value='';paintUpdates(r.updates||[]);}catch(e){alert(e.message||'Failed');}};</script></body></html>`;
 
-const devLinksHtml = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Dev Links</title><style>*{box-sizing:border-box;margin:0;padding:0}body{background:#090304;color:#f4d4d8;font-family:ui-sans-serif,system-ui,sans-serif;min-height:100vh;padding:24px}.wrap{max-width:960px;margin:0 auto}.card{background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(10px);border-radius:16px;padding:18px;margin-bottom:16px}h1{font-size:2rem;color:#ff7788;margin-bottom:8px}h2{font-size:1.04rem;margin-bottom:10px;color:#ffc7cf}.muted{opacity:.7;font-size:.84rem;line-height:1.45}input{width:100%;padding:10px 12px;border-radius:999px;background:#130709;border:1px solid rgba(255,255,255,.2);color:#fff;outline:none}input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}button{background:linear-gradient(135deg,rgba(255,255,255,.15),rgba(255,255,255,.06));border:1px solid rgba(255,255,255,.26);color:#ffecef;border-radius:999px;padding:9px 14px;cursor:pointer}button:hover{border-color:rgba(255,255,255,.45)}button:disabled{opacity:.4;cursor:default}.row{display:flex;gap:10px;flex-wrap:wrap}.hidden{display:none}.tabs{display:flex;gap:8px;margin-bottom:16px}.tab{border-radius:999px;padding:9px 20px}.tab.active{border-color:#ff7788;background:rgba(255,119,136,.15)}.link{padding:12px;border:1px solid rgba(255,255,255,.14);border-radius:12px;background:rgba(0,0,0,.26);margin-bottom:8px}.lurl{font-size:.86rem;word-break:break-all}.lmeta{font-size:.78rem;opacity:.6;margin-top:4px}.badge{display:inline-block;border-radius:999px;padding:2px 8px;font-size:.72rem;margin-left:5px}.badge.running{background:rgba(100,255,150,.12);color:#80ffaa}.badge.stopped{background:rgba(255,100,100,.1);color:#ff9090}.badge.prov{background:rgba(255,255,255,.08);color:#ddd}.ideas{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin-top:12px}.idea{border-radius:12px;padding:10px 12px;text-align:left}.providers{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}.pcard{border:1px solid rgba(255,255,255,.14);border-radius:12px;padding:10px 12px;cursor:pointer;transition:border-color .15s}.pcard.selected{border-color:#ff7788;background:rgba(255,119,136,.08)}.pcard .ptitle{font-size:.92rem;color:#ffc7cf;margin-bottom:3px}.pcard .pdomain{font-size:.78rem;opacity:.6}.pcard .pstatus{font-size:.75rem;margin-top:4px}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px}.stat{border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:12px;text-align:center}.stat-n{font-size:1.6rem;color:#ff7788;font-weight:bold}.stat-l{font-size:.75rem;opacity:.6;margin-top:2px}.notice{margin-top:10px;padding:10px 12px;border:1px solid rgba(255,184,100,.3);border-radius:12px;background:rgba(255,184,100,.08);font-size:.82rem;color:#ffd580;line-height:1.5}.progress{margin-top:12px;padding:10px 12px;border:1px solid rgba(255,255,255,.1);border-radius:12px;background:rgba(0,0,0,.3);font-size:.82rem;display:grid;gap:4px}.pi{padding:5px 0;border-bottom:1px solid rgba(255,255,255,.06);display:flex;gap:8px;align-items:center;flex-wrap:wrap}.pi:last-child{border-bottom:none}</style></head><body><div class="wrap"><h1>Dev Links</h1><p class="muted">Create and manage CDN/tunnel links using your preferred provider.</p><div id="auth" class="card"><h2>Authenticate</h2><input id="pw" type="password" placeholder="Admin password"/><div style="height:10px"></div><button id="login">Enter</button><p id="err" style="display:none;color:#ffb8c0;font-size:.84rem;margin-top:8px"></p></div><div id="panel" class="hidden"><div class="tabs"><button class="tab active" id="tab-create" onclick="showTab('create')">Create</button><button class="tab" id="tab-links" onclick="showTab('links')">Links</button></div><div id="view-create"><div class="card"><h2>Target URL</h2><div class="row"><input id="target" value="https://torov1.up.railway.app"/></div><div style="height:10px"></div><h2>Provider</h2><div id="providers" class="providers"></div></div><div class="card"><h2>Single Link</h2><div class="row"><input id="term" placeholder="Theme: education, gaming, health\u2026"/></div><div style="height:8px"></div><div class="row"><button id="generate">Generate Names</button></div><div id="ideas" class="ideas"></div><div style="height:10px"></div><div class="row"><input id="sub" placeholder="Site / zone name"/></div><p class="muted" style="margin-top:6px">BunnyCDN: zone name becomes name.b-cdn.net. Cloudflare: URL is randomly assigned.</p><div style="height:10px"></div><div class="row"><button id="create">Create Single Link</button></div><div id="create-note" style="display:none" class="notice"></div></div><div class="card"><h2>Bulk Create</h2><p class="muted" style="margin-bottom:10px">Enter a theme and how many links to auto-generate. Names are created from the theme. BunnyCDN only.</p><div class="row"><input id="bulk-term" placeholder="Theme: education, gaming, tech\u2026" style="flex:1"/><input id="bulk-count" type="number" min="1" max="20" value="3" style="width:90px;flex:none"/></div><div style="height:10px"></div><div class="row"><button id="bulk-create">Bulk Create Links</button></div><div id="bulk-progress" style="display:none" class="progress"></div></div></div><div id="view-links" class="hidden"><div class="stats"><div class="stat"><div class="stat-n" id="stat-total">0</div><div class="stat-l">Total</div></div><div class="stat"><div class="stat-n" id="stat-running">0</div><div class="stat-l">Running</div></div><div class="stat"><div class="stat-n" id="stat-stopped">0</div><div class="stat-l">Stopped</div></div></div><div class="card"><div style="display:flex;gap:8px;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap"><h2 style="margin-bottom:0">All Links</h2><div style="display:flex;gap:8px"><button id="refresh-links">\u21bb Refresh</button><button id="stop-all" style="border-color:rgba(255,100,100,.4);color:#ffb8b8">Stop All</button></div></div><div id="links-list"></div></div></div></div></div><script>let PASS='';let providers={};let selectedProvider='cloudflared';let allLinks=[];function esc(s){return String(s||'').replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]||m));}async function post(url,data){const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const j=await r.json().catch(()=>({}));if(!r.ok) throw new Error(j.error||('Request failed '+r.status));return j;}function setErr(t){const e=document.getElementById('err');e.style.display=t?'block':'none';e.textContent=t||'';}function showTab(tab){document.getElementById('view-create').classList.toggle('hidden',tab!=='create');document.getElementById('view-links').classList.toggle('hidden',tab!=='links');document.getElementById('tab-create').classList.toggle('active',tab==='create');document.getElementById('tab-links').classList.toggle('active',tab==='links');if(tab==='links')refreshLinks();}const PROVIDER_META={cloudflared:{title:'Cloudflare Tunnel',domain:'*.trycloudflare.com'},bunnycdn:{title:'BunnyCDN Pull Zone',domain:'*.b-cdn.net'}};function paintProviders(){const box=document.getElementById('providers');box.innerHTML='';Object.entries(PROVIDER_META).forEach(([key,meta])=>{const info=providers[key]||{available:false,reason:''};const card=document.createElement('div');card.className='pcard'+(key===selectedProvider?' selected':'');card.innerHTML='<div class="ptitle">'+esc(meta.title)+'</div><div class="pdomain">'+esc(meta.domain)+'</div><div class="pstatus" style="color:'+(info.available?'#a0ffb8':'#ffb8c0')+'">'+esc(info.available?'Available':info.reason||'Unavailable')+'</div>';card.onclick=()=>{selectedProvider=key;paintProviders();};box.appendChild(card);});}function paintIdeas(items){const box=document.getElementById('ideas');box.innerHTML='';(items||[]).forEach(item=>{const button=document.createElement('button');button.className='idea';button.type='button';button.textContent=item.label;button.onclick=()=>{document.getElementById('sub').value=item.label;};box.appendChild(button);});if(!(items||[]).length)box.innerHTML='<p class="muted">No suggestions yet.</p>';}async function generateIdeas(){try{const term=document.getElementById('term').value.trim();if(!term){paintIdeas([]);return;}const data=await post('/dev/api/links/suggest-names',{password:PASS,term});paintIdeas(data.suggestions||[]);}catch(e){alert(e.message||'Failed');}}function paintLinksList(links){allLinks=links||[];const running=allLinks.filter(l=>l.status==='running').length;document.getElementById('stat-total').textContent=allLinks.length;document.getElementById('stat-running').textContent=running;document.getElementById('stat-stopped').textContent=allLinks.length-running;const box=document.getElementById('links-list');box.innerHTML='';if(!allLinks.length){box.innerHTML='<p class="muted">No links yet.</p>';return;}allLinks.forEach(l=>{const pm=PROVIDER_META[l.provider]||{title:l.provider||'cloudflared'};const sc=l.status==='running'?'running':'stopped';const d=document.createElement('div');d.className='link';d.innerHTML='<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap"><div style="flex:1;min-width:0"><div class="lurl"><a href="'+esc(l.url)+'" target="_blank" rel="noreferrer">'+esc(l.url)+'</a><span class="badge prov">'+esc(pm.title)+'</span><span class="badge '+sc+'">'+esc(l.status||'unknown')+'</span></div>'+(l.requestedSubdomain?'<div class="lmeta">Name: '+esc(l.requestedSubdomain)+'</div>':'')+'<div class="lmeta">Created: '+new Date(l.createdAt).toLocaleString()+' &nbsp;\u2022 Target: '+esc(l.target||'')+'</div></div><button data-id="'+esc(l.id)+'">Stop</button></div>';d.querySelector('button').onclick=async()=>{try{await post('/dev/api/links/stop',{password:PASS,id:l.id});await refreshLinks();}catch(e){alert(e.message||'Failed');}};box.appendChild(d);});}async function refreshLinks(){try{const data=await post('/dev/api/links/list',{password:PASS});providers=data.providers||{};paintProviders();paintLinksList(data.links||[]);}catch(e){console.error(e);}}document.getElementById('login').onclick=async()=>{setErr('');try{PASS=document.getElementById('pw').value||'';await post('/dev/api/login',{password:PASS});document.getElementById('auth').classList.add('hidden');document.getElementById('panel').classList.remove('hidden');await refreshLinks();}catch(e){setErr(e.message||'Auth failed');}};document.getElementById('pw').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('login').click();});document.getElementById('generate').onclick=generateIdeas;document.getElementById('term').addEventListener('keydown',e=>{if(e.key==='Enter')generateIdeas();});document.getElementById('create').onclick=async()=>{const nb=document.getElementById('create-note');nb.style.display='none';nb.textContent='';try{const target=document.getElementById('target').value.trim();const desiredSubdomain=document.getElementById('sub').value.trim();const result=await post('/dev/api/links/create',{password:PASS,target,desiredSubdomain,provider:selectedProvider});if(result.note){nb.textContent=result.note;nb.style.display='block';}await refreshLinks();}catch(e){alert(e.message||'Failed to create link');}};document.getElementById('bulk-create').onclick=async()=>{const term=document.getElementById('bulk-term').value.trim();const count=Math.min(20,Math.max(1,parseInt(document.getElementById('bulk-count').value)||3));const target=document.getElementById('target').value.trim();if(!term){alert('Enter a theme term first.');return;}const btn=document.getElementById('bulk-create');const pb=document.getElementById('bulk-progress');btn.disabled=true;pb.style.display='grid';pb.innerHTML='<div style="opacity:.6;font-size:.8rem">\u23f3 Creating '+count+' links themed \u201c'+esc(term)+'\u201d\u2026</div>';try{const result=await post('/dev/api/links/bulk-create',{password:PASS,term,count,target,provider:selectedProvider});pb.innerHTML='';(result.results||[]).forEach(r=>{const row=document.createElement('div');row.className='pi';if(r.ok){row.innerHTML='<span style="color:#80ffaa">\u2713</span><b>'+esc(r.name)+'</b><a href="'+esc(r.url)+'" target="_blank" rel="noreferrer" style="opacity:.55;font-size:.78rem;word-break:break-all">'+esc(r.url)+'</a>';}else{row.innerHTML='<span style="color:#ff9090">\u2717</span><b>'+esc(r.name)+'</b><span style="opacity:.55;font-size:.78rem;color:#ffb8c0">'+esc(r.error)+'</span>';}pb.appendChild(row);});if(result.note){const n=document.createElement('div');n.className='notice';n.style.margin='10px 0 0';n.textContent=result.note;pb.appendChild(n);}await refreshLinks();}catch(e){pb.innerHTML='<div style="color:#ff9090">'+esc(e.message||'Bulk create failed')+'</div>';}btn.disabled=false;};document.getElementById('refresh-links').onclick=refreshLinks;document.getElementById('stop-all').onclick=async()=>{const running=allLinks.filter(l=>l.status==='running');if(!running.length){alert('No running links to stop.');return;}if(!confirm('Stop and delete all '+running.length+' running link'+(running.length===1?'':'s')+'?'))return;for(const l of running){try{await post('/dev/api/links/stop',{password:PASS,id:l.id});}catch{}}await refreshLinks();};</script></body></html>`;
+const devLinksHtml = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Dev Links</title><style>*{box-sizing:border-box;margin:0;padding:0}body{background:#090304;color:#f4d4d8;font-family:ui-sans-serif,system-ui,sans-serif;min-height:100vh;padding:24px}.wrap{max-width:960px;margin:0 auto}.card{background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(10px);border-radius:16px;padding:18px;margin-bottom:16px}h1{font-size:2rem;color:#ff7788;margin-bottom:8px}h2{font-size:1.04rem;margin-bottom:10px;color:#ffc7cf}.muted{opacity:.7;font-size:.84rem;line-height:1.45}input{width:100%;padding:10px 12px;border-radius:999px;background:#130709;border:1px solid rgba(255,255,255,.2);color:#fff;outline:none}input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}button{background:linear-gradient(135deg,rgba(255,255,255,.15),rgba(255,255,255,.06));border:1px solid rgba(255,255,255,.26);color:#ffecef;border-radius:999px;padding:9px 14px;cursor:pointer}button:hover{border-color:rgba(255,255,255,.45)}button:disabled{opacity:.4;cursor:default}.row{display:flex;gap:10px;flex-wrap:wrap}.hidden{display:none}.tabs{display:flex;gap:8px;margin-bottom:16px}.tab{border-radius:999px;padding:9px 20px}.tab.active{border-color:#ff7788;background:rgba(255,119,136,.15)}.link{padding:12px;border:1px solid rgba(255,255,255,.14);border-radius:12px;background:rgba(0,0,0,.26);margin-bottom:8px}.lurl{font-size:.86rem;word-break:break-all}.lmeta{font-size:.78rem;opacity:.6;margin-top:4px}.badge{display:inline-block;border-radius:999px;padding:2px 8px;font-size:.72rem;margin-left:5px}.badge.running{background:rgba(100,255,150,.12);color:#80ffaa}.badge.stopped{background:rgba(255,100,100,.1);color:#ff9090}.badge.prov{background:rgba(255,255,255,.08);color:#ddd}.ideas{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin-top:12px}.idea{border-radius:12px;padding:10px 12px;text-align:left}.providers{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-top:10px}.pcard{border:1px solid rgba(255,255,255,.14);border-radius:12px;padding:10px 12px;cursor:pointer;transition:border-color .15s}.pcard.selected{border-color:#ff7788;background:rgba(255,119,136,.08)}.pcard .ptitle{font-size:.92rem;color:#ffc7cf;margin-bottom:3px}.pcard .pdomain{font-size:.78rem;opacity:.6}.pcard .pstatus{font-size:.75rem;margin-top:4px}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px}.stat{border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:12px;text-align:center}.stat-n{font-size:1.6rem;color:#ff7788;font-weight:bold}.stat-l{font-size:.75rem;opacity:.6;margin-top:2px}.notice{margin-top:10px;padding:10px 12px;border:1px solid rgba(255,184,100,.3);border-radius:12px;background:rgba(255,184,100,.08);font-size:.82rem;color:#ffd580;line-height:1.5}.progress{margin-top:12px;padding:10px 12px;border:1px solid rgba(255,255,255,.1);border-radius:12px;background:rgba(0,0,0,.3);font-size:.82rem;display:grid;gap:4px}.pi{padding:5px 0;border-bottom:1px solid rgba(255,255,255,.06);display:flex;gap:8px;align-items:center;flex-wrap:wrap}.pi:last-child{border-bottom:none}</style></head><body><div class="wrap"><h1>Dev Links</h1><p class="muted">Create and manage CDN/tunnel links using your preferred provider.</p><div id="auth" class="card"><h2>Authenticate</h2><input id="pw" type="password" placeholder="Admin password"/><div style="height:10px"></div><button id="login">Enter</button><p id="err" style="display:none;color:#ffb8c0;font-size:.84rem;margin-top:8px"></p></div><div id="panel" class="hidden"><div class="tabs"><button class="tab active" id="tab-create" onclick="showTab('create')">Create</button><button class="tab" id="tab-links" onclick="showTab('links')">Links</button></div><div id="view-create"><div class="card"><h2>Target URL</h2><div class="row"><input id="target" value="https://torov1.up.railway.app"/></div><div style="height:10px"></div><h2>Provider</h2><div id="providers" class="providers"></div></div><div class="card"><h2>Single Link</h2><div class="row"><input id="term" placeholder="Theme: education, gaming, health\u2026"/></div><div style="height:8px"></div><div class="row"><button id="generate">Generate Names</button></div><div id="ideas" class="ideas"></div><div style="height:10px"></div><div class="row"><input id="sub" placeholder="Site / zone name"/></div><p class="muted" style="margin-top:6px">BunnyCDN: zone name becomes name.b-cdn.net. Cloudflare: URL is randomly assigned.</p><div style="height:10px"></div><div class="row"><button id="create">Create Single Link</button></div><div id="create-note" style="display:none" class="notice"></div></div><div class="card"><h2>Bulk Create</h2><p class="muted" style="margin-bottom:10px">Enter a theme and how many links to auto-generate. Names are created from the theme. BunnyCDN only.</p><div class="row"><input id="bulk-term" placeholder="Theme: education, gaming, tech\u2026" style="flex:1"/><input id="bulk-count" type="number" min="1" max="20" value="3" style="width:90px;flex:none"/></div><div style="height:10px"></div><div class="row"><button id="bulk-create">Bulk Create Links</button></div><div id="bulk-progress" style="display:none" class="progress"></div></div></div><div id="view-links" class="hidden"><div class="stats"><div class="stat"><div class="stat-n" id="stat-total">0</div><div class="stat-l">Total</div></div><div class="stat"><div class="stat-n" id="stat-running">0</div><div class="stat-l">Running</div></div><div class="stat"><div class="stat-n" id="stat-stopped">0</div><div class="stat-l">Stopped</div></div></div><div class="card"><div style="display:flex;gap:8px;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap"><h2 style="margin-bottom:0">All Links</h2><div style="display:flex;gap:8px"><button id="refresh-links">\u21bb Refresh</button><button id="stop-all" style="border-color:rgba(255,100,100,.4);color:#ffb8b8">Stop All</button></div></div><div id="links-list"></div></div></div></div></div><script>let PASS='';let providers={};let selectedProvider='cloudflared';let allLinks=[];function esc(s){return String(s||'').replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]||m));}async function post(url,data){const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const j=await r.json().catch(()=>({}));if(!r.ok) throw new Error(j.error||('Request failed '+r.status));return j;}function setErr(t){const e=document.getElementById('err');e.style.display=t?'block':'none';e.textContent=t||'';}function showTab(tab){document.getElementById('view-create').classList.toggle('hidden',tab!=='create');document.getElementById('view-links').classList.toggle('hidden',tab!=='links');document.getElementById('tab-create').classList.toggle('active',tab==='create');document.getElementById('tab-links').classList.toggle('active',tab==='links');if(tab==='links')refreshLinks();}const PROVIDER_META={cloudflared:{title:'Cloudflare Tunnel',domain:'*.trycloudflare.com'},bunnycdn:{title:'BunnyCDN Pull Zone',domain:'*.b-cdn.net'},cfworker:{title:'Cloudflare Workers',domain:'*.workers.dev'}};function paintProviders(){const box=document.getElementById('providers');box.innerHTML='';Object.entries(PROVIDER_META).forEach(([key,meta])=>{const info=providers[key]||{available:false,reason:''};const card=document.createElement('div');card.className='pcard'+(key===selectedProvider?' selected':'');card.innerHTML='<div class="ptitle">'+esc(meta.title)+'</div><div class="pdomain">'+esc(meta.domain)+'</div><div class="pstatus" style="color:'+(info.available?'#a0ffb8':'#ffb8c0')+'">'+esc(info.available?'Available':info.reason||'Unavailable')+'</div>';card.onclick=()=>{selectedProvider=key;paintProviders();};box.appendChild(card);});}function paintIdeas(items){const box=document.getElementById('ideas');box.innerHTML='';(items||[]).forEach(item=>{const button=document.createElement('button');button.className='idea';button.type='button';button.textContent=item.label;button.onclick=()=>{document.getElementById('sub').value=item.label;};box.appendChild(button);});if(!(items||[]).length)box.innerHTML='<p class="muted">No suggestions yet.</p>';}async function generateIdeas(){try{const term=document.getElementById('term').value.trim();if(!term){paintIdeas([]);return;}const data=await post('/dev/api/links/suggest-names',{password:PASS,term});paintIdeas(data.suggestions||[]);}catch(e){alert(e.message||'Failed');}}function paintLinksList(links){allLinks=links||[];const running=allLinks.filter(l=>l.status==='running').length;document.getElementById('stat-total').textContent=allLinks.length;document.getElementById('stat-running').textContent=running;document.getElementById('stat-stopped').textContent=allLinks.length-running;const box=document.getElementById('links-list');box.innerHTML='';if(!allLinks.length){box.innerHTML='<p class="muted">No links yet.</p>';return;}allLinks.forEach(l=>{const pm=PROVIDER_META[l.provider]||{title:l.provider||'cloudflared'};const sc=l.status==='running'?'running':'stopped';const d=document.createElement('div');d.className='link';d.innerHTML='<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap"><div style="flex:1;min-width:0"><div class="lurl"><a href="'+esc(l.url)+'" target="_blank" rel="noreferrer">'+esc(l.url)+'</a><span class="badge prov">'+esc(pm.title)+'</span><span class="badge '+sc+'">'+esc(l.status||'unknown')+'</span></div>'+(l.requestedSubdomain?'<div class="lmeta">Name: '+esc(l.requestedSubdomain)+'</div>':'')+'<div class="lmeta">Created: '+new Date(l.createdAt).toLocaleString()+' &nbsp;\u2022 Target: '+esc(l.target||'')+'</div></div><button data-id="'+esc(l.id)+'">Stop</button></div>';d.querySelector('button').onclick=async()=>{try{await post('/dev/api/links/stop',{password:PASS,id:l.id});await refreshLinks();}catch(e){alert(e.message||'Failed');}};box.appendChild(d);});}async function refreshLinks(){try{const data=await post('/dev/api/links/list',{password:PASS});providers=data.providers||{};paintProviders();paintLinksList(data.links||[]);}catch(e){console.error(e);}}document.getElementById('login').onclick=async()=>{setErr('');try{PASS=document.getElementById('pw').value||'';await post('/dev/api/login',{password:PASS});document.getElementById('auth').classList.add('hidden');document.getElementById('panel').classList.remove('hidden');await refreshLinks();}catch(e){setErr(e.message||'Auth failed');}};document.getElementById('pw').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('login').click();});document.getElementById('generate').onclick=generateIdeas;document.getElementById('term').addEventListener('keydown',e=>{if(e.key==='Enter')generateIdeas();});document.getElementById('create').onclick=async()=>{const nb=document.getElementById('create-note');nb.style.display='none';nb.textContent='';try{const target=document.getElementById('target').value.trim();const desiredSubdomain=document.getElementById('sub').value.trim();const result=await post('/dev/api/links/create',{password:PASS,target,desiredSubdomain,provider:selectedProvider});if(result.note){nb.textContent=result.note;nb.style.display='block';}await refreshLinks();}catch(e){alert(e.message||'Failed to create link');}};document.getElementById('bulk-create').onclick=async()=>{const term=document.getElementById('bulk-term').value.trim();const count=Math.min(20,Math.max(1,parseInt(document.getElementById('bulk-count').value)||3));const target=document.getElementById('target').value.trim();if(!term){alert('Enter a theme term first.');return;}const btn=document.getElementById('bulk-create');const pb=document.getElementById('bulk-progress');btn.disabled=true;pb.style.display='grid';pb.innerHTML='<div style="opacity:.6;font-size:.8rem">\u23f3 Creating '+count+' links themed \u201c'+esc(term)+'\u201d\u2026</div>';try{const result=await post('/dev/api/links/bulk-create',{password:PASS,term,count,target,provider:selectedProvider});pb.innerHTML='';(result.results||[]).forEach(r=>{const row=document.createElement('div');row.className='pi';if(r.ok){row.innerHTML='<span style="color:#80ffaa">\u2713</span><b>'+esc(r.name)+'</b><a href="'+esc(r.url)+'" target="_blank" rel="noreferrer" style="opacity:.55;font-size:.78rem;word-break:break-all">'+esc(r.url)+'</a>';}else{row.innerHTML='<span style="color:#ff9090">\u2717</span><b>'+esc(r.name)+'</b><span style="opacity:.55;font-size:.78rem;color:#ffb8c0">'+esc(r.error)+'</span>';}pb.appendChild(row);});if(result.note){const n=document.createElement('div');n.className='notice';n.style.margin='10px 0 0';n.textContent=result.note;pb.appendChild(n);}await refreshLinks();}catch(e){pb.innerHTML='<div style="color:#ff9090">'+esc(e.message||'Bulk create failed')+'</div>';}btn.disabled=false;};document.getElementById('refresh-links').onclick=refreshLinks;document.getElementById('stop-all').onclick=async()=>{const running=allLinks.filter(l=>l.status==='running');if(!running.length){alert('No running links to stop.');return;}if(!confirm('Stop and delete all '+running.length+' running link'+(running.length===1?'':'s')+'?'))return;for(const l of running){try{await post('/dev/api/links/stop',{password:PASS,id:l.id});}catch{}}await refreshLinks();};</script></body></html>`;
 
 function verifyLogPassword(candidate) {
   try {
@@ -707,6 +794,7 @@ const app = Fastify({
               }
               const cloudflared = getCloudflaredSupport();
               const bunny = getBunnyCDNSupport();
+              const cfworker = getCFWorkersSupport();
               const links = devState.links.map((l) => ({
                 ...l,
                 status: tunnelProcesses.has(l.id) ? 'running' : l.status || 'stopped',
@@ -717,6 +805,7 @@ const app = Fastify({
                 providers: {
                   cloudflared: { available: cloudflared.available, reason: cloudflared.reason },
                   bunnycdn: { available: bunny.available, reason: bunny.reason },
+                  cfworker: { available: cfworker.available, reason: cfworker.reason },
                 },
               }));
             } catch {
@@ -778,16 +867,22 @@ const app = Fastify({
               }
 
               const chosenProvider = String(provider || 'bunnycdn').toLowerCase();
-              if (chosenProvider !== 'bunnycdn') {
+              if (!['bunnycdn', 'cfworker'].includes(chosenProvider)) {
                 res.writeHead(400, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: 'Bulk create is only supported with BunnyCDN. Select the BunnyCDN provider and try again.' }));
+                res.end(JSON.stringify({ error: 'Bulk create is only supported with BunnyCDN or Cloudflare Workers. Select one of those providers and try again.' }));
                 return;
               }
 
-              const bunny = getBunnyCDNSupport();
-              if (!bunny.available) {
+              const bunny = chosenProvider === 'bunnycdn' ? getBunnyCDNSupport() : null;
+              const cfw = chosenProvider === 'cfworker' ? getCFWorkersSupport() : null;
+              if (bunny && !bunny.available) {
                 res.writeHead(503, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: bunny.reason }));
+                return;
+              }
+              if (cfw && !cfw.available) {
+                res.writeHead(503, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: cfw.reason }));
                 return;
               }
 
@@ -811,19 +906,36 @@ const app = Fastify({
               for (const idea of ideas) {
                 const linkId = randomUUID();
                 try {
-                  const { zoneId, hostname } = await createBunnyCDNPullZone(bunny.apiKey, idea.slug, targetUrl.toString());
-                  const rec = {
-                    id: linkId,
-                    url: `https://${hostname}`,
-                    requestedSubdomain: idea.label,
-                    target: targetUrl.toString(),
-                    createdAt: new Date().toISOString(),
-                    status: 'running',
-                    provider: 'bunnycdn',
-                    providerZoneId: zoneId,
-                  };
-                  devState.links.unshift(rec);
-                  results.push({ ok: true, name: idea.label, url: `https://${hostname}` });
+                  if (chosenProvider === 'bunnycdn') {
+                    const { zoneId, hostname } = await createBunnyCDNPullZone(bunny.apiKey, idea.slug, targetUrl.toString());
+                    const rec = {
+                      id: linkId,
+                      url: `https://${hostname}`,
+                      requestedSubdomain: idea.label,
+                      target: targetUrl.toString(),
+                      createdAt: new Date().toISOString(),
+                      status: 'running',
+                      provider: 'bunnycdn',
+                      providerZoneId: zoneId,
+                    };
+                    devState.links.unshift(rec);
+                    results.push({ ok: true, name: idea.label, url: `https://${hostname}` });
+                  } else {
+                    const workerName = `${idea.slug}-${linkId.slice(0, 6)}`;
+                    const { hostname } = await createCloudflareWorker(cfw.accountId, cfw.apiToken, workerName, targetUrl.toString());
+                    const rec = {
+                      id: linkId,
+                      url: `https://${hostname}`,
+                      requestedSubdomain: idea.label,
+                      target: targetUrl.toString(),
+                      createdAt: new Date().toISOString(),
+                      status: 'running',
+                      provider: 'cfworker',
+                      cfWorkerName: workerName,
+                    };
+                    devState.links.unshift(rec);
+                    results.push({ ok: true, name: idea.label, url: `https://${hostname}` });
+                  }
                 } catch (err) {
                   results.push({ ok: false, name: idea.label, error: err?.message || 'Failed' });
                 }
@@ -832,11 +944,14 @@ const app = Fastify({
               if (devState.links.length > 30) devState.links.length = 30;
               await saveDevState();
 
+              const noteMsg = chosenProvider === 'bunnycdn'
+                ? 'BunnyCDN pull zones can take 1\u20135 minutes to go live as the edge network propagates.'
+                : 'Cloudflare Workers are usually live within seconds.';
               res.writeHead(200, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({
                 ok: true,
                 results,
-                note: 'BunnyCDN pull zones can take 1\u20135 minutes to go live as the edge network propagates.',
+                note: noteMsg,
               }));
             } catch {
               res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -870,6 +985,10 @@ const app = Fastify({
                 if (link.provider === 'bunnycdn' && link.providerZoneId) {
                   const bunny = getBunnyCDNSupport();
                   if (bunny.available) await deleteBunnyCDNPullZone(bunny.apiKey, link.providerZoneId);
+                }
+                if (link.provider === 'cfworker' && link.cfWorkerName) {
+                  const cfw = getCFWorkersSupport();
+                  if (cfw.available) await deleteCloudflareWorker(cfw.accountId, cfw.apiToken, link.cfWorkerName);
                 }
                 devState.links[idx].status = 'stopped';
               }
@@ -942,6 +1061,41 @@ const app = Fastify({
                 } catch (err) {
                   res.writeHead(502, { 'Content-Type': 'application/json' });
                   res.end(JSON.stringify({ error: err?.message || 'BunnyCDN pull zone creation failed.' }));
+                }
+                return;
+              }
+
+              // --- Cloudflare Workers path ---
+              if (chosenProvider === 'cfworker') {
+                const cfw = getCFWorkersSupport();
+                if (!cfw.available) {
+                  res.writeHead(503, { 'Content-Type': 'application/json' });
+                  res.end(JSON.stringify({ error: cfw.reason }));
+                  return;
+                }
+
+                const rawName = String(desiredSubdomain || '').trim().toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || `toro-worker-${linkId.slice(0, 8)}`;
+                const workerName = `${rawName}-${linkId.slice(0, 6)}`;
+                try {
+                  const { hostname } = await createCloudflareWorker(cfw.accountId, cfw.apiToken, workerName, targetUrl.toString());
+                  const rec = {
+                    id: linkId,
+                    url: `https://${hostname}`,
+                    requestedSubdomain: rawName,
+                    target: targetUrl.toString(),
+                    createdAt: new Date().toISOString(),
+                    status: 'running',
+                    provider: 'cfworker',
+                    cfWorkerName: workerName,
+                  };
+                  devState.links.unshift(rec);
+                  if (devState.links.length > 30) devState.links.length = 30;
+                  await saveDevState();
+                  res.writeHead(200, { 'Content-Type': 'application/json' });
+                  res.end(JSON.stringify({ ok: true, link: rec }));
+                } catch (err) {
+                  res.writeHead(502, { 'Content-Type': 'application/json' });
+                  res.end(JSON.stringify({ error: err?.message || 'Cloudflare Worker creation failed.' }));
                 }
                 return;
               }
