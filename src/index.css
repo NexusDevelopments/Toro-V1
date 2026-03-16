@@ -45,12 +45,17 @@ body {
     radial-gradient(circle at 20% 20%, rgba(190, 30, 49, 0.22), transparent 42%),
     radial-gradient(circle at 78% 82%, rgba(190, 30, 49, 0.15), transparent 46%),
     #080203;
-  transition: opacity 420ms ease, transform 420ms ease;
+  transition: opacity 560ms ease, transform 560ms ease;
 }
 
 .toro-splash.is-closing {
   opacity: 0;
-  transform: scale(1.02);
+  transform: scale(1.015) translateY(-8px);
+}
+
+.toro-splash.is-closing .toro-splash-card {
+  opacity: 0;
+  transform: translateY(18px) scale(0.985);
 }
 
 .toro-splash-card {
@@ -62,6 +67,7 @@ body {
   -webkit-backdrop-filter: blur(12px) saturate(140%);
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.48), inset 0 1px 0 rgba(255, 255, 255, 0.22);
   padding: 1.3rem 1.1rem 1.1rem;
+  transition: opacity 420ms ease, transform 420ms ease;
 }
 
 .toro-splash-logo {
@@ -119,5 +125,22 @@ body {
   100% {
     transform: scale(0.96);
     filter: drop-shadow(0 0 0 rgba(239, 73, 96, 0));
+  }
+}
+
+.route-fade-enter {
+  animation: routeFadeIn 320ms ease both;
+}
+
+@keyframes routeFadeIn {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+    filter: blur(2px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
   }
 }

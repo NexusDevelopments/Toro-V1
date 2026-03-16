@@ -1,15 +1,19 @@
 import { Suspense, memo } from 'react';
-import { Route, Routes } from 'react-router-dom';
+import { Route, Routes, useLocation } from 'react-router-dom';
 import Fallback from './fallback';
 
 const Routing = memo(({ pages }) => {
+  const location = useLocation();
+
   return (
     <Suspense fallback={<Fallback />}>
-      <Routes>
-        {pages.map((page, index) => (
-          <Route key={`${page.path}-${index}`} path={page.path} element={page.element} />
-        ))}
-      </Routes>
+      <div key={location.pathname} className="route-fade-enter">
+        <Routes location={location}>
+          {pages.map((page, index) => (
+            <Route key={`${page.path}-${index}`} path={page.path} element={page.element} />
+          ))}
+        </Routes>
+      </div>
     </Suspense>
   );
 });
