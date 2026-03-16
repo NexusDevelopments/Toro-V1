@@ -3,6 +3,7 @@ import { Globe, X, Plus, Loader } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useOptions } from '/src/utils/optionsContext'
 import clsx from 'clsx';
+import theme from '/src/styles/theming.module.css';
 
 const TabBar = () => {
   const { tabs, addTab, removeTab, setActive, showTabs, setLastActive, showUI } = loaderStore();
@@ -17,6 +18,7 @@ const TabBar = () => {
             className={clsx(
               'flex flex-1 flex-shrink px-2 h-[calc(100%-7px)] min-w-[60px] max-w-[200px]',
               'items-center border rounded-md duration-150',
+              theme.glassButton,
             )}
             onClick={() => setActive(id)}
             key={id}
@@ -49,7 +51,7 @@ const TabBar = () => {
           'flex-none mx-1 w-6 h-6',
           'flex items-center justify-center',
           'duration-100 rounded-lg',
-          options.type != 'light' ? "hover:bg-[#ffffff1e]" : "hover:bg-[#a7a7a7]",
+          theme.glassIconButton,
           tabs.length >= 20 ? 'cursor-not-allowed opacity-50 hover:bg-transparent' : '',
         )}
         onClick={() => {

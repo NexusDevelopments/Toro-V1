@@ -3,6 +3,7 @@ import { Plus, Minus } from 'lucide-react';
 import { useCallback } from 'react';
 import loaderStore from '/src/utils/hooks/loader/useLoaderStore';
 import { useOptions } from '/src/utils/optionsContext';
+import theme from '/src/styles/theming.module.css';
 
 const Zoom = () => {
   const { tabs, zoomLevels, setZoom, resetZoom } = loaderStore();
@@ -36,7 +37,7 @@ const Zoom = () => {
           disabled={!canZoom || currentz <= 50}
           className={clsx(
             'w-6 h-6 rounded flex items-center justify-center',
-            options.type === 'light' ? 'hover:bg-gray-100' : 'hover:bg-[#ffffff0c]',
+            theme.glassIconButton,
             !canZoom || currentz <= 50 ? 'opacity-50 cursor-not-allowed' : '',
           )}
         >
@@ -48,7 +49,7 @@ const Zoom = () => {
           disabled={!canZoom}
           className={clsx(
             'text-[0.75rem] min-w-[3rem] text-center px-2 py-0.5 rounded',
-            options.type === 'light' ? 'hover:bg-gray-100' : 'hover:bg-[#ffffff0c]',
+            theme.glassButton,
             !canZoom ? 'opacity-50 cursor-not-allowed' : '',
           )}
         >
@@ -60,7 +61,7 @@ const Zoom = () => {
           disabled={!canZoom || currentz >= 200}
           className={clsx(
             'w-6 h-6 rounded flex items-center justify-center',
-            options.type === 'light' ? 'hover:bg-gray-100' : 'hover:bg-[#ffffff0c]',
+            theme.glassIconButton,
             !canZoom || currentz >= 200 ? 'opacity-50 cursor-not-allowed' : '',
           )}
         >

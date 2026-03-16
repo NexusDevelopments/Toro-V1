@@ -5,6 +5,7 @@ import { useOptions } from '/src/utils/optionsContext';
 import loaderStore from '/src/utils/hooks/loader/useLoaderStore';
 import Zoom from './menu/Zoom';
 import Bookmarks from '../Bookmarks';
+import theme from '/src/styles/theming.module.css';
 
 const devTools = (fr) => {
   if (!fr?.contentWindow || !fr?.contentDocument) return;
@@ -134,6 +135,7 @@ export default function Menu() {
   const cnt = clsx(
     'absolute right-2 w-56 rounded-lg shadow-lg overflow-hidden text-sm z-50',
     'border transition-all duration-200 origin-top-right',
+    theme.glassButton,
     showTabs ? 'mt-21' : 'mt-11',
     showMenu
       ? 'scale-100 opacity-100 pointer-events-auto'
@@ -142,7 +144,8 @@ export default function Menu() {
 
   const item = clsx(
     'w-full flex justify-between items-center text-left text-[0.8rem] px-3 py-2 focus:outline-none',
-    options.type === 'light' ? 'hover:bg-gray-100' : 'hover:bg-[#ffffff0c]',
+    theme.glassButton,
+    options.type === 'light' ? 'hover:bg-gray-100/60' : 'hover:bg-[#ffffff12]',
   );
 
   return (

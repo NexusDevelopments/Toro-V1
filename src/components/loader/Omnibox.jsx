@@ -15,6 +15,7 @@ import loaderStore from '/src/utils/hooks/loader/useLoaderStore';
 import { process, openEmbed } from '/src/utils/hooks/loader/utils';
 import { useOptions } from '/src/utils/optionsContext';
 import { useLocation, useNavigate } from 'react-router-dom';
+import theme from '/src/styles/theming.module.css';
 
 const Action = ({ Icon, size = 15, action = () => alert('nothing here yet'), disabled = false }) => {
   const { options } = useOptions();
@@ -23,8 +24,8 @@ const Action = ({ Icon, size = 15, action = () => alert('nothing here yet'), dis
       className={clsx(
         'flex justify-center items-center',
         'h-6 w-7 rounded-md',
+        theme.glassIconButton,
         disabled ? 'cursor-not-allowed opacity-70' : '',
-        options.type != 'light' ? 'hover:bg-[#fff3]' : 'hover:bg-[#97979773]',
       )}
       onClick={(e) => {
         if (!disabled) {
@@ -116,11 +117,11 @@ const Omnibox = () => {
       <div
         className={clsx(
           ' h-[calc(100%-8px)] w-full',
-          'rounded-lg border-1 flex items-center px-2 ml-1 mr-1',
+          'rounded-full border-1 flex items-center px-3 ml-1 mr-1',
+          theme.searchBarColor,
         )}
         style={{
-          backgroundColor: options.omninputColor || '#06080d8f',
-          borderColor: options.type == 'light' ? '#a1a1a173' : "#efefef30",
+          borderColor: options.type == 'light' ? '#a1a1a173' : '#efefef30',
         }}
       >
         <Icon size="15" />
