@@ -329,7 +329,7 @@ async function doAuth() {
       var last = r.visits[0];
       var eId = 'ex' + i;
       var action = r.visits.length > 1
-        ? '<button class="btn-v" onclick="toggle(this,\'' + eId + '\')">View Logs</button>'
+        ? '<button class="btn-v" onclick="toggle(this,\\\'' + eId + '\\\')">View Logs</button>'
         : (last ? fmt(last.ts) : '\u2014');
       var tr = document.createElement('tr');
       tr.innerHTML =
