@@ -10,26 +10,27 @@ import { useEffect } from 'react';
 export default function Loader({ config = {} }) {
   const { url, ui = true, zoom, alerts = false } = config;
   const { options } = useOptions();
-  const tabs = loaderStore((state) => state.tabs);
   const updateUrl = loaderStore((state) => state.updateUrl);
   const barStyle = {
     backgroundColor: options.barColor || '#09121e',
   };
 
   useEffect(() => {
-    if (url && tabs.length > 0) {
-      //only 1 tab on initial load so tabs[0]
-      const tab = tabs[0];
-      const processedUrl = process(url, false, options.prType || 'auto', options.engine || null);
-      if (processedUrl && tab.url !== processedUrl) {
-        updateUrl(tab.id, processedUrl);
-      }
-    }
-  }, [url, tabs, updateUrl, options.prType]);
-
-  useEffect(() => {
+    // Reset loader store first so URL updates target the fresh default tab.
     loaderStore.getState().clearStore({ showTb: options.showTb ?? true });
   }, []);
+
+  useEffect(() => {
+    if (!url) return;
+
+    const processedUrl = process(url, false, options.prType || 'auto', options.engine || null);
+    if (!processedUrl) return;
+
+    const firstTab = loaderStore.getState().tabs?.[0];
+    if (!firstTab || firstTab.url === processedUrl) return;
+
+    updateUrl(firstTab.id, processedUrl);
+  }, [url, updateUrl, options.prType, options.engine]);
 
   return (
     <div className="flex flex-col w-full h-screen">
