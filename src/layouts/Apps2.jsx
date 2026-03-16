@@ -231,7 +231,7 @@ const Games = memo(() => {
 
   return (
     <div className={`${styles.appContainer} w-full mx-auto`}>
-      <div className="w-full px-4 py-4 flex justify-center mt-3 relative">
+      <div className="w-full px-4 min-h-[22vh] flex items-center justify-center relative">
         {(category || showDl) && (
           <button
             onClick={handleBack}
@@ -242,7 +242,7 @@ const Games = memo(() => {
         )}
         <div
           className={clsx(
-            'relative flex items-center gap-2.5 rounded-[10px] px-3 w-[600px] h-11',
+            'relative flex items-center gap-3 px-5 w-[min(92vw,700px)] h-14',
             searchCls,
           )}
         >
