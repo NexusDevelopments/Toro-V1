@@ -18,6 +18,7 @@ const importGms = () => import('./pages/Apps2');
 const importSettings = () => import('./pages/Settings');
 const importUpdates = () => import('./pages/Updates');
 const importSearchPage = () => import('./pages/SearchPage');
+const importChatRooms = () => import('./pages/ChatRooms');
 
 const Home = lazyLoad(importHome);
 const Apps = lazyLoad(importApps);
@@ -25,6 +26,7 @@ const Apps2 = lazyLoad(importGms);
 const Settings = lazyLoad(importSettings);
 const Updates = lazyLoad(importUpdates);
 const SearchPage = lazyLoad(importSearchPage);
+const ChatRooms = lazyLoad(importChatRooms);
 const Player = lazyLoad(() => import('./pages/Player'));
 const BOOT_STEPS = ['Authenticating...', 'Loading Files...', 'Welcome to Toro V1..'];
 
@@ -33,6 +35,7 @@ initPreload('/docs', importGms);
 initPreload('/settings', importSettings);
 initPreload('/updates', importUpdates);
 initPreload('/search', importSearchPage);
+initPreload('/chat-rooms', importChatRooms);
 initPreload('/', importHome);
 
 function useTracking() {
@@ -73,6 +76,7 @@ const ThemedApp = memo(() => {
       { path: '/docs', element: <Apps2 /> },
       { path: '/docs/r', element: <Player /> },
       { path: '/search', element: <SearchPage />},
+      { path: '/chat-rooms', element: <ChatRooms /> },
       { path: '/settings', element: <Settings /> },
       { path: '/updates', element: <Updates /> },
       { path: '/portal/k12/*', element: <NotFound /> },

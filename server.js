@@ -39,7 +39,14 @@ const devState = {
 const DEV_STATE_DIR = join(__dirname, 'data');
 const DEV_STATE_FILE = join(DEV_STATE_DIR, 'dev-state.json');
 const IP_LOG_FILE = join(DEV_STATE_DIR, 'ip-logs.json');
+const CHAT_STATE_FILE = join(DEV_STATE_DIR, 'chat-state.json');
 let ipLogSaveTimer = null;
+let chatSaveTimer = null;
+const CHAT_USER_TTL_MS = 120000;
+const BAD_WORDS = (process.env.CHAT_BLOCKED_WORDS || 'fuck,shit,bitch,asshole,cunt,porn,sex')
+  .split(',')
+  .map((w) => w.trim().toLowerCase())
+  .filter(Boolean);
 
 async function loadDevState() {
   try {
@@ -151,6 +158,104 @@ function scheduleIpLogSave() {
 }
 
 await loadIpLogs();
+
+const chatState = {
+  rooms: {
+    general: { name: 'general', messages: [] },
+    gaming: { name: 'gaming', messages: [] },
+    lounge: { name: 'lounge', messages: [] },
+  },
+  users: {}, // sessionId -> { username, room, lastSeen }
+};
+
+const hasBadWord = (value = '') => {
+  const v = String(value).toLowerCase();
+  return BAD_WORDS.some((w) => v.includes(w));
+};
+
+const normalizeRoomName = (room) =>
+  String(room || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-_ ]/g, '')
+    .replace(/\s+/g, '-')
+    .slice(0, 24);
+
+const scheduleChatSave = () => {
+  if (chatSaveTimer) return;
+  chatSaveTimer = setTimeout(async () => {
+    chatSaveTimer = null;
+    try {
+      await mkdir(DEV_STATE_DIR, { recursive: true });
+      await writeFile(
+        CHAT_STATE_FILE,
+        JSON.stringify({ rooms: chatState.rooms }, null, 2),
+        'utf8',
+      );
+    } catch (err) {
+      console.error('Failed to persist chat state:', err);
+    }
+  }, 1000);
+};
+
+const pruneChatUsers = () => {
+  const now = Date.now();
+  for (const [sessionId, user] of Object.entries(chatState.users)) {
+    if (!user?.lastSeen || now - user.lastSeen > CHAT_USER_TTL_MS) {
+      delete chatState.users[sessionId];
+    }
+  }
+};
+
+const ensureRoom = (rawRoom) => {
+  const room = normalizeRoomName(rawRoom);
+  if (!room) return null;
+  if (!chatState.rooms[room]) {
+    chatState.rooms[room] = { name: room, messages: [] };
+    scheduleChatSave();
+  }
+  return room;
+};
+
+const roomPresence = (room) => {
+  pruneChatUsers();
+  const usernames = Object.values(chatState.users)
+    .filter((u) => u.room === room)
+    .map((u) => u.username);
+  return { userCount: usernames.length, usernames };
+};
+
+async function loadChatState() {
+  try {
+    const raw = await readFile(CHAT_STATE_FILE, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (parsed?.rooms && typeof parsed.rooms === 'object') {
+      const nextRooms = {};
+      for (const [roomName, roomData] of Object.entries(parsed.rooms)) {
+        const normalized = normalizeRoomName(roomName);
+        if (!normalized) continue;
+        const msgs = Array.isArray(roomData?.messages)
+          ? roomData.messages
+              .filter((m) => typeof m?.username === 'string' && typeof m?.ts === 'string')
+              .slice(-5000)
+              .map((m) => ({
+                id: typeof m.id === 'string' ? m.id : randomUUID(),
+                username: m.username.slice(0, 15),
+                text: typeof m.text === 'string' ? m.text.slice(0, 1200) : '',
+                image: typeof m.image === 'string' ? m.image.slice(0, 450000) : '',
+                ts: m.ts,
+              }))
+          : [];
+        nextRooms[normalized] = { name: normalized, messages: msgs };
+      }
+      if (Object.keys(nextRooms).length > 0) chatState.rooms = nextRooms;
+    }
+  } catch {
+    // No persisted chat state file yet.
+  }
+}
+
+await loadChatState();
 
 const maintenanceHtml = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Maintenance</title><style>*{box-sizing:border-box;margin:0;padding:0}body{min-height:100vh;display:grid;place-items:center;background:#090304;color:#f4d4d8;font-family:ui-sans-serif,system-ui,sans-serif;padding:24px}.card{max-width:760px;width:100%;background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.16);backdrop-filter:blur(10px);border-radius:18px;padding:28px}h1{font-size:clamp(1.6rem,3vw,2.3rem);color:#ff7a8a;margin-bottom:10px}p{opacity:.9;line-height:1.6;font-size:1rem}.sub{margin-top:10px;opacity:.6;font-size:.9rem}</style></head><body><div class="card"><h1>Server Down Due to Maintenance</h1><p id="msg"></p><p class="sub">Please check back shortly.</p></div><script>const m=${JSON.stringify('MSG_PLACEHOLDER')};document.getElementById('msg').textContent=m&&m!=='MSG_PLACEHOLDER'?m:'We are currently performing maintenance.';</script></body></html>`;
 
@@ -364,6 +469,39 @@ const app = Fastify({
         }
       }
 
+      if (pathname === '/logs/crlogs' || pathname === '/logs/crlogs/') {
+        if (req.method === 'GET') {
+          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+          res.end(crLogsHtml);
+          return;
+        }
+        if (req.method === 'POST') {
+          let body = '';
+          req.on('data', c => { body += c; if (body.length > 8192) req.destroy(); });
+          req.on('end', () => {
+            try {
+              const { password } = JSON.parse(body || '{}');
+              if (typeof password !== 'string' || !verifyLogPassword(password)) {
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Unauthorized' }));
+                return;
+              }
+              const rooms = Object.values(chatState.rooms).map((r) => ({
+                room: r.name,
+                messageCount: Array.isArray(r.messages) ? r.messages.length : 0,
+                messages: Array.isArray(r.messages) ? r.messages.slice(-500) : [],
+              }));
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify(rooms));
+            } catch {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Bad Request' }));
+            }
+          });
+          return;
+        }
+      }
+
       const exemptPath = pathname.startsWith('/logs/') || pathname.startsWith('/dev/') || pathname === '/health';
       if (devState.maintenanceEnabled && !exemptPath) {
         const html = maintenanceHtml.replace('MSG_PLACEHOLDER', devState.maintenanceMessage || 'We are currently performing maintenance.');
@@ -450,6 +588,114 @@ app.get("/js/script.js", proxy(() => "https://byod.privatedns.org/js/script.js")
 app.get("/ds", (req, res) => res.redirect("https://discord.gg/ZBef7HnAeg"));
 app.get('/health', async () => ({ ok: true }));
 app.get('/api/updates', async () => devState.updates);
+
+app.get('/api/chat/rooms', async () => {
+  pruneChatUsers();
+  return Object.values(chatState.rooms)
+    .map((r) => {
+      const p = roomPresence(r.name);
+      const last = r.messages[r.messages.length - 1];
+      return {
+        name: r.name,
+        userCount: p.userCount,
+        usernames: p.usernames,
+        lastMessageAt: last?.ts || null,
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+});
+
+  const crLogsHtml = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Chat Room Logs</title><style>*{box-sizing:border-box;margin:0;padding:0}body{background:#090304;color:#f4d4d8;font-family:ui-sans-serif,system-ui,sans-serif;padding:24px}.wrap{max-width:980px;margin:0 auto}h1{font-size:1.65rem;color:#ff7d8d;margin-bottom:8px}.sub{opacity:.55;font-size:.82rem;margin-bottom:18px}#auth{max-width:380px;padding:18px;border-radius:16px;border:1px solid rgba(255,255,255,.16);background:rgba(0,0,0,.35);backdrop-filter:blur(10px)}input{width:100%;padding:10px 12px;border-radius:999px;background:#130709;border:1px solid rgba(255,255,255,.24);color:#fff;outline:none}button{padding:9px 14px;border-radius:999px;border:1px solid rgba(255,255,255,.28);background:linear-gradient(135deg,rgba(255,255,255,.16),rgba(255,255,255,.06));color:#ffecef;cursor:pointer}button:hover{border-color:rgba(255,255,255,.42)}#err{color:#ff9eaa;display:none;margin-top:8px;font-size:.8rem}#out{display:none}.room{margin-top:12px;border:1px solid rgba(255,255,255,.16);border-radius:14px;background:rgba(0,0,0,.3);overflow:hidden}.head{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.12)}.name{font-weight:700}.count{opacity:.6;font-size:.8rem}.msgs{padding:10px 12px;max-height:320px;overflow:auto}.msg{padding:7px 0;border-bottom:1px solid rgba(255,255,255,.08)}.msg:last-child{border-bottom:none}.u{color:#ffb2bc;font-weight:700}.t{opacity:.86}.time{opacity:.45;font-size:.72rem;margin-left:8px}.img{display:block;max-width:240px;border-radius:10px;margin-top:6px;border:1px solid rgba(255,255,255,.2)}</style></head><body><div class="wrap"><h1>Chat Room Logs</h1><p class="sub">View each room and historical messages</p><div id="auth"><input id="pw" type="password" placeholder="Admin password"/><div style="height:10px"></div><button id="btn">View Chat Logs</button><p id="err">Incorrect password.</p></div><div id="out"></div></div><script>function esc(s){return String(s||'').replace(/[&<>\"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[m]||m));}document.getElementById('pw').addEventListener('keydown',e=>{if(e.key==='Enter')go();});document.getElementById('btn').onclick=go;async function go(){const err=document.getElementById('err');err.style.display='none';const pw=document.getElementById('pw').value;const r=await fetch('/logs/crlogs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:pw})});if(r.status===401){err.style.display='block';return;}if(!r.ok){err.textContent='Request failed';err.style.display='block';return;}const rooms=await r.json();document.getElementById('auth').style.display='none';const out=document.getElementById('out');out.style.display='block';out.innerHTML='';rooms.forEach(room=>{const box=document.createElement('div');box.className='room';const head=document.createElement('div');head.className='head';head.innerHTML='<span class="name">#'+esc(room.room)+'</span><span class="count">'+room.messageCount+' messages</span>';const msgs=document.createElement('div');msgs.className='msgs';(room.messages||[]).forEach(m=>{const row=document.createElement('div');row.className='msg';const txt=(m.text?'<div class="t">'+esc(m.text)+'</div>':'');const img=(m.image?'<img class="img" src="'+m.image+'" alt="img"/>':'');row.innerHTML='<div><span class="u">'+esc(m.username)+'</span><span class="time">'+new Date(m.ts).toLocaleString()+'</span></div>'+txt+img;msgs.appendChild(row);});box.appendChild(head);box.appendChild(msgs);out.appendChild(box);});}</script></body></html>`;
+
+app.post('/api/chat/join', async (req, reply) => {
+  pruneChatUsers();
+  const { room: rawRoom, username: rawUsername, sessionId } = req.body || {};
+  const room = ensureRoom(rawRoom);
+  const username = String(rawUsername || '').trim();
+  if (!room) return reply.code(400).send({ error: 'Invalid room name' });
+  if (!sessionId || typeof sessionId !== 'string' || sessionId.length > 120) {
+    return reply.code(400).send({ error: 'Invalid session' });
+  }
+  if (!username || username.length < 2 || username.length > 15) {
+    return reply.code(400).send({ error: 'Username must be 2-15 characters' });
+  }
+  if (!/^[a-zA-Z0-9_-]+$/.test(username)) {
+    return reply.code(400).send({ error: 'Username can use letters, numbers, _ and - only' });
+  }
+  if (hasBadWord(username)) {
+    return reply.code(400).send({ error: 'Username contains blocked words' });
+  }
+
+  const lower = username.toLowerCase();
+  const same = Object.entries(chatState.users).find(
+    ([sid, u]) => sid !== sessionId && u?.username?.toLowerCase() === lower,
+  );
+  if (same) return reply.code(409).send({ error: 'Username is already in use' });
+
+  chatState.users[sessionId] = { username, room, lastSeen: Date.now() };
+  const p = roomPresence(room);
+  return reply.send({ ok: true, room, username, users: p.usernames, userCount: p.userCount });
+});
+
+app.post('/api/chat/leave', async (req) => {
+  const { sessionId } = req.body || {};
+  if (sessionId && chatState.users[sessionId]) delete chatState.users[sessionId];
+  return { ok: true };
+});
+
+app.post('/api/chat/ping', async (req, reply) => {
+  const { sessionId } = req.body || {};
+  if (!sessionId || !chatState.users[sessionId]) return reply.code(404).send({ error: 'Not joined' });
+  chatState.users[sessionId].lastSeen = Date.now();
+  return { ok: true };
+});
+
+app.get('/api/chat/room/:room', async (req) => {
+  pruneChatUsers();
+  const room = ensureRoom(req.params.room);
+  const r = room ? chatState.rooms[room] : null;
+  if (!r) return { room: null, users: [], messages: [] };
+  const p = roomPresence(room);
+  return {
+    room,
+    users: p.usernames,
+    userCount: p.userCount,
+    messages: r.messages.slice(-400),
+  };
+});
+
+app.post('/api/chat/message', async (req, reply) => {
+  pruneChatUsers();
+  const { sessionId, room: rawRoom, text: rawText, image: rawImage } = req.body || {};
+  const user = chatState.users[sessionId];
+  const room = ensureRoom(rawRoom);
+  if (!user || !room || user.room !== room) return reply.code(403).send({ error: 'Join room first' });
+
+  const text = String(rawText || '').trim().slice(0, 1200);
+  const image = String(rawImage || '').trim().slice(0, 450000);
+
+  if (!text && !image) return reply.code(400).send({ error: 'Message is empty' });
+  if (text && hasBadWord(text)) return reply.code(400).send({ error: 'Message contains blocked words' });
+
+  if (image) {
+    const okImage = image.startsWith('data:image/') || /^https?:\/\//i.test(image);
+    if (!okImage) return reply.code(400).send({ error: 'Invalid image' });
+  }
+
+  const msg = {
+    id: randomUUID(),
+    username: user.username,
+    text,
+    image,
+    ts: new Date().toISOString(),
+  };
+
+  chatState.rooms[room].messages.push(msg);
+  if (chatState.rooms[room].messages.length > 5000) chatState.rooms[room].messages.shift();
+  user.lastSeen = Date.now();
+  scheduleChatSave();
+  return reply.send({ ok: true, message: msg });
+});
 
 // --- /logs/ips : password-protected IP viewer ---
 const logsHtml = `<!DOCTYPE html>
