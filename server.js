@@ -144,12 +144,16 @@ function generateSiteNameIdeas(term, max = 8) {
     ...theme.leads.map((l, i) => `${l}${theme.tails[(i + 3) % theme.tails.length]}`),
   ];
 
+  // Short random suffix (4 alphanumeric chars) so the same theme can be
+  // bulk-created multiple times without hitting BunnyCDN uniqueness errors.
+  const randSuffix = Math.random().toString(36).slice(2, 6);
+
   const unique = [];
   const seen = new Set();
   for (const label of candidates) {
-    const cleaned = String(label || '').replace(/[^A-Za-z0-9]+/g, '').slice(0, 40);
+    const cleaned = String(label || '').replace(/[^A-Za-z0-9]+/g, '').slice(0, 36);
     if (!cleaned) continue;
-    const slug = slugifySiteName(cleaned);
+    const slug = slugifySiteName(`${cleaned}-${randSuffix}`);
     if (!slug || seen.has(slug)) continue;
     seen.add(slug);
     unique.push({ label: cleaned, slug });
@@ -197,7 +201,20 @@ async function createBunnyCDNPullZone(apiKey, zoneName, originUrl) {
       );
     }
     if (resp.status === 400) {
-      throw new Error(`BunnyCDN rejected the request (400). Check the zone name — it must be unique and contain only letters, numbers, and hyphens. Details: ${text.slice(0, 200)}`);
+      let detail = text.slice(0, 300);
+      try {
+        const j = JSON.parse(text);
+        if (j?.ErrorKey === 'user.insufficient_balance') {
+          throw new Error('Your BunnyCDN account has insufficient balance / is not allowed to add new pull zones. Add billing credits at dash.bunny.net/billing.');
+        }
+        if (j?.ErrorKey === 'pullzone.nameAlreadyExists' || /already exist/i.test(j?.Message || '')) {
+          throw new Error(`BunnyCDN: zone name "${zoneName}" is already taken. Choose a different name or try again (names include a random suffix).`);
+        }
+        if (j?.Message) detail = j.Message;
+      } catch (inner) {
+        if (inner.message.startsWith('BunnyCDN') || inner.message.startsWith('Your BunnyCDN')) throw inner;
+      }
+      throw new Error(`BunnyCDN rejected the request (400). Check the zone name — it must be unique and contain only letters, numbers, and hyphens. Details: ${detail}`);
     }
     throw new Error(`BunnyCDN API error ${resp.status}: ${text.slice(0, 200)}`);
   }
