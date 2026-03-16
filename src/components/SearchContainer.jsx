@@ -104,7 +104,7 @@ const SearchContainer = memo(function SearchContainer({ logo = true, cls, nav = 
   return (
     <div
       className={clsx(
-        !cls ? 'absolute w-full px-20 py-4 flex flex-col items-center mt-8 z-50' : cls,
+        !cls ? 'w-full min-h-[46vh] px-6 py-4 flex flex-col items-center justify-center z-50' : cls,
       )}
       data-m={!cls && 'bounce-up'}
       data-m-duration={!cls && '0.8'}
@@ -113,12 +113,12 @@ const SearchContainer = memo(function SearchContainer({ logo = true, cls, nav = 
       <GlowWrapper
         glowOptions={{ color: options.glowWrapperColor || '255, 255, 255', size: 70, opacity: 0.2 }}
       >
-        <div className="w-[40.625rem]">
+        <div className="w-[min(92vw,40.625rem)]">
           <div
             id="search-div"
             className={clsx(
-              'flex items-center gap-3 shadow-xl pl-4 pr-4 w-full h-[3.41rem]',
-              results.length ? 'rounded-t-[14px] rounded-b-none' : 'rounded-[14px]',
+              'flex items-center gap-3 pl-5 pr-5 w-full h-[3.55rem]',
+              results.length ? 'rounded-t-[9999px] rounded-b-[18px]' : 'rounded-[9999px]',
               theme[`searchBarColor`],
               theme[`theme-${options.theme || 'default'}`],
             )}
@@ -145,7 +145,7 @@ const SearchContainer = memo(function SearchContainer({ logo = true, cls, nav = 
           {results.length > 0 && (
             <div
               className={clsx(
-                'shadow-xl mt-0 p-2 text-[14px] w-full rounded-b-[14px] space-y-1',
+                'shadow-xl mt-1 p-2 text-[14px] w-full rounded-[18px] space-y-1',
                 theme[`searchResultStyle`],
                 theme[`theme-${options.theme || 'default'}`],
               )}

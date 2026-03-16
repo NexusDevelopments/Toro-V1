@@ -144,9 +144,11 @@
 }
 
 .searchBarColor {
-  border: 1px solid var(--search-border);
-  box-shadow: 0 1px 0 0 var(--search-border);
-  background-color: var(--search-bg);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.06));
+  backdrop-filter: blur(14px) saturate(145%);
+  -webkit-backdrop-filter: blur(14px) saturate(145%);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
 .searchBarColor input {
@@ -158,9 +160,10 @@
 }
 
 .searchResultStyle {
-  background-color: var(--search-bg);
-  border: 1px solid var(--search-border);
-  border-top: 0;
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.05));
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(14px) saturate(145%);
+  -webkit-backdrop-filter: blur(14px) saturate(145%);
 }
 
 .settings-panelColor {
