@@ -93,7 +93,8 @@ const app = Fastify({
   serverFactory: h => {
     server.on("request", (req, res) => {
       // Admin endpoint: bypass Fastify/static entirely so React Router never intercepts it
-      if (req.url === '/logs/ips') {
+      const pathname = new URL(req.url || '/', 'http://local').pathname;
+      if (pathname === '/logs/ips' || pathname === '/logs/ips/') {
         if (req.method === 'GET') {
           res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
           res.end(logsHtml);
@@ -286,58 +287,85 @@ function fmt(ts) {
 }
 async function doAuth() {
   var pw = document.getElementById('pw').value;
-  var res = await fetch('/logs/ips', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({password: pw})
-  });
-  if (res.status === 401) { document.getElementById('err').style.display = 'block'; return; }
-  var data = await res.json();
-  document.getElementById('login').style.display = 'none';
-  document.getElementById('log').style.display = 'block';
-  var total = data.reduce(function(a, b) { return a + b.visits.length; }, 0);
-  document.getElementById('stats').textContent = data.length + ' unique IPs \u2014 ' + total + ' total requests';
-  var tbody = document.getElementById('tbody');
-  tbody.innerHTML = '';
-  data.forEach(function(r, i) {
-    var vpnHtml = r.vpn === null
-      ? '<span class="badge b-wait">Checking\u2026</span>'
-      : r.vpn
-        ? '<span class="badge b-vpn">VPN ON</span>'
-        : '<span class="badge b-ok">No VPN</span>';
-    var last = r.visits[0];
-    var eId = 'ex' + i;
-    var action = r.visits.length > 1
-      ? '<button class="btn-v" onclick="toggle(this,\'' + eId + '\')">View Logs</button>'
-      : (last ? fmt(last.ts) : '\u2014');
-    var tr = document.createElement('tr');
-    tr.innerHTML =
-      '<td>' + (i + 1) + '</td>'
-      + '<td class="mono">' + r.ip + '</td>'
-      + '<td>' + (r.city || '\u2014') + '</td>'
-      + '<td>' + (r.state || '\u2014') + '</td>'
-      + '<td>' + (r.country || '\u2014') + '</td>'
-      + '<td>' + (r.device || 'Unknown') + '</td>'
-      + '<td class="isp-td" title="' + (r.isp || '') + '">' + (r.isp || '\u2014') + '</td>'
-      + '<td>' + vpnHtml + '</td>'
-      + '<td>' + r.visits.length + '</td>'
-      + '<td>' + action + '</td>';
-    tbody.appendChild(tr);
-    if (r.visits.length > 1) {
-      var xtr = document.createElement('tr');
-      xtr.className = 'xrow'; xtr.id = eId; xtr.style.display = 'none';
-      var items = r.visits.map(function(v, j) {
-        return '<div class="vi">'
-          + '<span class="vn">' + (j + 1) + '</span>'
-          + '<span class="vt">' + fmt(v.ts) + '</span>'
-          + '<span class="vm">' + v.method + '</span>'
-          + '<span class="vp">' + v.path + '</span>'
-          + '</div>';
-      }).join('');
-      xtr.innerHTML = '<td colspan="10"><div class="vlist">' + items + '</div></td>';
-      tbody.appendChild(xtr);
+  var err = document.getElementById('err');
+  var btn = document.getElementById('auth-btn');
+  err.style.display = 'none';
+  btn.disabled = true;
+  btn.textContent = 'Authenticating...';
+  try {
+    var res = await fetch('/logs/ips', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({password: pw})
+    });
+    if (res.status === 401) {
+      err.textContent = 'Incorrect password.';
+      err.style.display = 'block';
+      return;
     }
-  });
+    if (!res.ok) {
+      err.textContent = 'Request failed (' + res.status + ').';
+      err.style.display = 'block';
+      return;
+    }
+    var data = await res.json();
+    if (!Array.isArray(data)) {
+      err.textContent = 'Unexpected response from server.';
+      err.style.display = 'block';
+      return;
+    }
+    document.getElementById('login').style.display = 'none';
+    document.getElementById('log').style.display = 'block';
+    var total = data.reduce(function(a, b) { return a + b.visits.length; }, 0);
+    document.getElementById('stats').textContent = data.length + ' unique IPs \u2014 ' + total + ' total requests';
+    var tbody = document.getElementById('tbody');
+    tbody.innerHTML = '';
+    data.forEach(function(r, i) {
+      var vpnHtml = r.vpn === null
+        ? '<span class="badge b-wait">Checking\u2026</span>'
+        : r.vpn
+          ? '<span class="badge b-vpn">VPN ON</span>'
+          : '<span class="badge b-ok">No VPN</span>';
+      var last = r.visits[0];
+      var eId = 'ex' + i;
+      var action = r.visits.length > 1
+        ? '<button class="btn-v" onclick="toggle(this,\'' + eId + '\')">View Logs</button>'
+        : (last ? fmt(last.ts) : '\u2014');
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td>' + (i + 1) + '</td>'
+        + '<td class="mono">' + r.ip + '</td>'
+        + '<td>' + (r.city || '\u2014') + '</td>'
+        + '<td>' + (r.state || '\u2014') + '</td>'
+        + '<td>' + (r.country || '\u2014') + '</td>'
+        + '<td>' + (r.device || 'Unknown') + '</td>'
+        + '<td class="isp-td" title="' + (r.isp || '') + '">' + (r.isp || '\u2014') + '</td>'
+        + '<td>' + vpnHtml + '</td>'
+        + '<td>' + r.visits.length + '</td>'
+        + '<td>' + action + '</td>';
+      tbody.appendChild(tr);
+      if (r.visits.length > 1) {
+        var xtr = document.createElement('tr');
+        xtr.className = 'xrow'; xtr.id = eId; xtr.style.display = 'none';
+        var items = r.visits.map(function(v, j) {
+          return '<div class="vi">'
+            + '<span class="vn">' + (j + 1) + '</span>'
+            + '<span class="vt">' + fmt(v.ts) + '</span>'
+            + '<span class="vm">' + v.method + '</span>'
+            + '<span class="vp">' + v.path + '</span>'
+            + '</div>';
+        }).join('');
+        xtr.innerHTML = '<td colspan="10"><div class="vlist">' + items + '</div></td>';
+        tbody.appendChild(xtr);
+      }
+    });
+  } catch {
+    err.textContent = 'Network error. Try again.';
+    err.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Authenticate';
+  }
 }
 function toggle(btn, id) {
   var row = document.getElementById(id);
