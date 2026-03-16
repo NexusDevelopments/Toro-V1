@@ -52,6 +52,108 @@ const BAD_WORDS = (process.env.CHAT_BLOCKED_WORDS || 'fuck,shit,bitch,asshole,cu
   .map((w) => w.trim().toLowerCase())
   .filter(Boolean);
 
+const SITE_NAME_THEME_MAP = {
+  education: {
+    keywords: ['education', 'school', 'study', 'learning', 'college', 'class', 'academic', 'teacher', 'campus'],
+    leads: ['Campus', 'Scholar', 'Lesson', 'Study', 'Academy', 'Bright', 'Clever', 'Pencil'],
+    tails: ['Compass', 'Bridge', 'Atlas', 'Desk', 'Works', 'Path', 'Central', 'Library'],
+  },
+  technology: {
+    keywords: ['tech', 'technology', 'coding', 'code', 'developer', 'software', 'computer', 'programming'],
+    leads: ['Code', 'Pixel', 'Circuit', 'Logic', 'Stack', 'Binary', 'Dev', 'Signal'],
+    tails: ['Forge', 'Lab', 'Grid', 'Core', 'Flow', 'Foundry', 'Base', 'Works'],
+  },
+  gaming: {
+    keywords: ['gaming', 'game', 'esports', 'arcade', 'stream'],
+    leads: ['Arcade', 'Quest', 'Level', 'Pixel', 'Spawn', 'Victory', 'Guild', 'Respawn'],
+    tails: ['Arena', 'Zone', 'Hub', 'Portal', 'Vault', 'Deck', 'Pulse', 'Base'],
+  },
+  business: {
+    keywords: ['business', 'finance', 'money', 'startup', 'office', 'market', 'sales'],
+    leads: ['Summit', 'Ledger', 'Capital', 'Market', 'Prime', 'Vertex', 'Growth', 'Trade'],
+    tails: ['Works', 'Point', 'Bridge', 'Desk', 'Central', 'Partners', 'Flow', 'Board'],
+  },
+  health: {
+    keywords: ['health', 'medical', 'wellness', 'fitness', 'care', 'clinic'],
+    leads: ['Vital', 'Well', 'Care', 'Pulse', 'Active', 'Core', 'Bloom', 'Health'],
+    tails: ['Bridge', 'Center', 'Path', 'Works', 'Studio', 'Guide', 'Collective', 'Point'],
+  },
+  media: {
+    keywords: ['news', 'media', 'blog', 'music', 'video', 'podcast', 'art'],
+    leads: ['Signal', 'Echo', 'Canvas', 'Story', 'Melody', 'Frame', 'Studio', 'Spotlight'],
+    tails: ['Daily', 'House', 'Wave', 'Hub', 'Press', 'Collective', 'Feed', 'Room'],
+  },
+};
+
+function toTitleToken(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .split(' ')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join('');
+}
+
+function slugifySiteName(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 50);
+}
+
+function detectSiteNameTheme(term) {
+  const normalized = String(term || '').toLowerCase();
+  for (const [themeName, theme] of Object.entries(SITE_NAME_THEME_MAP)) {
+    if (theme.keywords.some((keyword) => normalized.includes(keyword))) {
+      return themeName;
+    }
+  }
+  return 'generic';
+}
+
+function generateSiteNameIdeas(term) {
+  const normalizedTerm = String(term || '').trim().toLowerCase();
+  if (!normalizedTerm) return [];
+
+  const safeToken = toTitleToken(normalizedTerm) || 'Nimbus';
+  const themeName = detectSiteNameTheme(normalizedTerm);
+  const theme = SITE_NAME_THEME_MAP[themeName] || {
+    leads: ['North', 'Blue', 'Open', 'Bright', 'Prime', 'Clear', 'Nova', 'Summit'],
+    tails: ['Works', 'Hub', 'Point', 'Atlas', 'Bridge', 'Studio', 'Collective', 'Base'],
+  };
+
+  const candidates = [
+    `${safeToken}Hub`,
+    `${safeToken}Central`,
+    `${safeToken}Atlas`,
+    `${theme.leads[0]}${theme.tails[0]}`,
+    `${theme.leads[1]}${theme.tails[1]}`,
+    `${theme.leads[2]}${theme.tails[2]}`,
+    `${theme.leads[3]}${theme.tails[3]}`,
+    `${safeToken}${theme.tails[4]}`,
+    `${theme.leads[4]}${safeToken}`,
+    `${theme.leads[5]}${theme.tails[5]}`,
+    `${theme.leads[6]}${theme.tails[6]}`,
+    `${theme.leads[7]}${theme.tails[7]}`,
+  ];
+
+  const unique = [];
+  const seen = new Set();
+  for (const label of candidates) {
+    const cleaned = String(label || '').replace(/[^A-Za-z0-9]+/g, '').slice(0, 40);
+    if (!cleaned) continue;
+    const slug = slugifySiteName(cleaned);
+    if (!slug || seen.has(slug)) continue;
+    seen.add(slug);
+    unique.push({ label: cleaned, slug });
+    if (unique.length >= 8) break;
+  }
+
+  return unique;
+}
+
 function getCloudflaredSupport() {
   if (process.env.DISABLE_CLOUDFLARED === 'true') {
     return {
@@ -327,7 +429,7 @@ const maintenanceHtml = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF
 
 const devHtml = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Dev Panel</title><style>*{box-sizing:border-box;margin:0;padding:0}body{background:#090304;color:#f4d4d8;font-family:ui-sans-serif,system-ui,sans-serif;min-height:100vh;padding:24px}.wrap{max-width:900px;margin:0 auto}.card{background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(10px);border-radius:16px;padding:18px;margin-bottom:16px}h1{font-size:2rem;color:#ff7788;margin-bottom:14px}h2{font-size:1.05rem;margin-bottom:12px;color:#ffc7cf}input,textarea{width:100%;background:#130709;border:1px solid rgba(255,255,255,.2);border-radius:12px;color:#fff;padding:11px 12px;outline:none}textarea{min-height:92px;resize:vertical}button{background:linear-gradient(135deg,rgba(255,255,255,.15),rgba(255,255,255,.06));border:1px solid rgba(255,255,255,.26);color:#ffecef;border-radius:999px;padding:9px 14px;cursor:pointer}button:hover{border-color:rgba(255,255,255,.45)}.row{display:flex;gap:10px;flex-wrap:wrap}.muted{opacity:.65;font-size:.9rem}.hidden{display:none}ul{margin-top:10px;display:grid;gap:8px;padding-left:18px}</style></head><body><div class="wrap"><h1>Dev Panel</h1><div id="auth" class="card"><h2>Authenticate</h2><input id="pw" type="password" placeholder="Admin password" /><div style="height:10px"></div><button id="login">Enter Panel</button><div id="err" class="muted" style="color:#ff9aa8;margin-top:10px;display:none"></div></div><div id="panel" class="hidden"><div class="card"><h2>Maintenance Mode</h2><p class="muted">Blocks normal site routes and shows the maintenance screen. Dev and IP logs remain accessible.</p><div style="height:10px"></div><textarea id="maintMsg" placeholder="Maintenance message"></textarea><div style="height:10px"></div><div class="row"><button id="enableMaint">Enable Maintenance</button><button id="disableMaint">Disable Maintenance</button></div></div><div class="card"><h2>Add Update</h2><textarea id="updateText" placeholder="Write update text..."></textarea><div style="height:10px"></div><button id="addUpdate">Add Update</button><ul id="updates"></ul></div></div></div><script>let PASS='';function esc(s){return String(s||'').replace(/[&<>\"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[m]||m));}function setErr(t){const e=document.getElementById('err');if(!t){e.style.display='none';return;}e.style.display='block';e.textContent=t;}async function post(url,data){const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const j=await r.json().catch(()=>({}));if(!r.ok) throw new Error(j.error||('Request failed '+r.status));return j;}function paintUpdates(items){const ul=document.getElementById('updates');ul.innerHTML='';items.forEach(x=>{const li=document.createElement('li');li.innerHTML='<span>'+esc(x.text)+'</span>';ul.appendChild(li);});}document.getElementById('login').onclick=async()=>{setErr('');try{PASS=document.getElementById('pw').value||'';const r=await post('/dev/api/login',{password:PASS});document.getElementById('auth').classList.add('hidden');document.getElementById('panel').classList.remove('hidden');document.getElementById('maintMsg').value=r.state.maintenanceMessage||'';paintUpdates(r.state.updates||[]);}catch(e){setErr(e.message||'Authentication failed');}};document.getElementById('enableMaint').onclick=async()=>{try{const msg=document.getElementById('maintMsg').value.trim();await post('/dev/api/maintenance',{password:PASS,enabled:true,message:msg});alert('Maintenance enabled');}catch(e){alert(e.message||'Failed');}};document.getElementById('disableMaint').onclick=async()=>{try{await post('/dev/api/maintenance',{password:PASS,enabled:false,message:''});alert('Maintenance disabled');}catch(e){alert(e.message||'Failed');}};document.getElementById('addUpdate').onclick=async()=>{try{const text=document.getElementById('updateText').value.trim();if(!text)return;const r=await post('/dev/api/updates/add',{password:PASS,text});document.getElementById('updateText').value='';paintUpdates(r.updates||[]);}catch(e){alert(e.message||'Failed');}};</script></body></html>`;
 
-const devLinksHtml = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Dev Links</title><style>*{box-sizing:border-box;margin:0;padding:0}body{background:#090304;color:#f4d4d8;font-family:ui-sans-serif,system-ui,sans-serif;min-height:100vh;padding:24px}.wrap{max-width:960px;margin:0 auto}.card{background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(10px);border-radius:16px;padding:18px;margin-bottom:16px}h1{font-size:2rem;color:#ff7788;margin-bottom:8px}h2{font-size:1.04rem;margin-bottom:10px;color:#ffc7cf}.muted{opacity:.7;font-size:.84rem}input{width:100%;padding:10px 12px;border-radius:999px;background:#130709;border:1px solid rgba(255,255,255,.2);color:#fff;outline:none}button{background:linear-gradient(135deg,rgba(255,255,255,.15),rgba(255,255,255,.06));border:1px solid rgba(255,255,255,.26);color:#ffecef;border-radius:999px;padding:9px 14px;cursor:pointer}button:hover{border-color:rgba(255,255,255,.45)}.row{display:flex;gap:10px;flex-wrap:wrap}.hidden{display:none}.link{padding:10px;border:1px solid rgba(255,255,255,.14);border-radius:12px;background:rgba(0,0,0,.26)}.line{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap}.url{font-size:.86rem;word-break:break-all}.warn{margin-top:8px;color:#ffb8c0;font-size:.8rem}</style></head><body><div class="wrap"><h1>Dev Links</h1><p class="muted">Create temporary Cloudflare quick-tunnel links. Multiple links are supported.</p><div id="auth" class="card"><h2>Authenticate</h2><input id="pw" type="password" placeholder="Admin password"/><div style="height:10px"></div><button id="login">Enter</button><p id="err" class="warn" style="display:none"></p></div><div id="panel" class="hidden"><div class="card"><h2>Create Link</h2><div class="row"><input id="target" value="https://torov1.up.railway.app"/></div><div style="height:8px"></div><div class="row"><input id="sub" placeholder="Desired subdomain (info only, trycloudflare ignores this)"/></div><div style="height:10px"></div><div class="row"><button id="create">Create Temporary Link</button></div><p class="warn">You cannot choose a custom prefix under *.trycloudflare.com. For custom subdomains, use your own Cloudflare domain.</p></div><div class="card"><h2>Active / Saved Links</h2><div id="links" style="display:grid;gap:8px"></div></div></div></div><script>let PASS='';function esc(s){return String(s||'').replace(/[&<>\"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[m]||m));}async function post(url,data){const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const j=await r.json().catch(()=>({}));if(!r.ok) throw new Error(j.error||('Request failed '+r.status));return j;}function setErr(t){const e=document.getElementById('err');if(!t){e.style.display='none';return;}e.style.display='block';e.textContent=t;}async function refresh(){const data=await post('/dev/api/links/list',{password:PASS});const box=document.getElementById('links');box.innerHTML='';(data.links||[]).forEach(l=>{const d=document.createElement('div');d.className='link';d.innerHTML='<div class="line"><div><div class="url"><a href="'+l.url+'" target="_blank" rel="noreferrer">'+esc(l.url)+'</a></div><div class="muted">status: '+esc(l.status||'unknown')+' • '+new Date(l.createdAt).toLocaleString()+'</div></div><button data-id="'+l.id+'">Stop</button></div>';d.querySelector('button').onclick=async()=>{try{await post('/dev/api/links/stop',{password:PASS,id:l.id});await refresh();}catch(e){alert(e.message||'Failed');}};box.appendChild(d);});if((data.links||[]).length===0){box.innerHTML='<p class="muted">No links yet.</p>';}}document.getElementById('login').onclick=async()=>{setErr('');try{PASS=document.getElementById('pw').value||'';await post('/dev/api/login',{password:PASS});document.getElementById('auth').classList.add('hidden');document.getElementById('panel').classList.remove('hidden');await refresh();}catch(e){setErr(e.message||'Auth failed');}};document.getElementById('create').onclick=async()=>{try{const target=document.getElementById('target').value.trim();const desiredSubdomain=document.getElementById('sub').value.trim();await post('/dev/api/links/create',{password:PASS,target,desiredSubdomain});await refresh();}catch(e){alert(e.message||'Failed to create link');}};</script></body></html>`;
+const devLinksHtml = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Dev Links</title><style>*{box-sizing:border-box;margin:0;padding:0}body{background:#090304;color:#f4d4d8;font-family:ui-sans-serif,system-ui,sans-serif;min-height:100vh;padding:24px}.wrap{max-width:960px;margin:0 auto}.card{background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(10px);border-radius:16px;padding:18px;margin-bottom:16px}h1{font-size:2rem;color:#ff7788;margin-bottom:8px}h2{font-size:1.04rem;margin-bottom:10px;color:#ffc7cf}.muted{opacity:.7;font-size:.84rem;line-height:1.45}input{width:100%;padding:10px 12px;border-radius:999px;background:#130709;border:1px solid rgba(255,255,255,.2);color:#fff;outline:none}button{background:linear-gradient(135deg,rgba(255,255,255,.15),rgba(255,255,255,.06));border:1px solid rgba(255,255,255,.26);color:#ffecef;border-radius:999px;padding:9px 14px;cursor:pointer}button:hover{border-color:rgba(255,255,255,.45)}.row{display:flex;gap:10px;flex-wrap:wrap}.hidden{display:none}.link{padding:10px;border:1px solid rgba(255,255,255,.14);border-radius:12px;background:rgba(0,0,0,.26)}.line{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap}.url{font-size:.86rem;word-break:break-all}.warn{margin-top:8px;color:#ffb8c0;font-size:.8rem}.ideas{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-top:12px}.idea{border-radius:12px;padding:10px 12px;text-align:left}.support{margin-top:10px;padding:10px 12px;border:1px solid rgba(255,255,255,.16);border-radius:12px;background:rgba(255,184,192,.08)}</style></head><body><div class="wrap"><h1>Dev Links</h1><p class="muted">Create temporary Cloudflare quick-tunnel links. Multiple links are supported.</p><div id="auth" class="card"><h2>Authenticate</h2><input id="pw" type="password" placeholder="Admin password"/><div style="height:10px"></div><button id="login">Enter</button><p id="err" class="warn" style="display:none"></p></div><div id="panel" class="hidden"><div class="card"><h2>Create Link</h2><div class="row"><input id="target" value="https://torov1.up.railway.app"/></div><div style="height:8px"></div><div class="row"><input id="term" placeholder="Enter a theme like education, gaming, health, coding"/></div><div style="height:10px"></div><div class="row"><button id="generate">Generate Site Names</button></div><div id="ideas" class="ideas"></div><div style="height:10px"></div><div class="row"><input id="sub" placeholder="Chosen site name"/></div><div class="row"><p class="muted">Type a topic, generate ideas, then click one to use it as the saved site name for this link.</p></div><div id="support" class="support muted hidden"></div><div style="height:10px"></div><div class="row"><button id="create">Create Temporary Link</button></div><p class="warn">You cannot choose a custom prefix under *.trycloudflare.com. For custom subdomains, use your own Cloudflare domain.</p></div><div class="card"><h2>Active / Saved Links</h2><div id="links" style="display:grid;gap:8px"></div></div></div></div><script>let PASS='';function esc(s){return String(s||'').replace(/[&<>\"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[m]||m));}async function post(url,data){const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const j=await r.json().catch(()=>({}));if(!r.ok) throw new Error(j.error||('Request failed '+r.status));return j;}function setErr(t){const e=document.getElementById('err');if(!t){e.style.display='none';return;}e.style.display='block';e.textContent=t;}function showSupport(support){const box=document.getElementById('support');if(!support||support.available){box.classList.add('hidden');box.textContent='';return;}box.classList.remove('hidden');box.textContent=support.reason||'Cloudflared support is unavailable on this server.';}function paintIdeas(items){const box=document.getElementById('ideas');box.innerHTML='';(items||[]).forEach(item=>{const button=document.createElement('button');button.className='idea';button.type='button';button.textContent=item.label;button.onclick=()=>{document.getElementById('sub').value=item.label;};box.appendChild(button);});if((items||[]).length===0){box.innerHTML='<p class="muted">No suggestions yet.</p>';}}async function generateIdeas(){try{const term=document.getElementById('term').value.trim();if(!term){paintIdeas([]);return;}const data=await post('/dev/api/links/suggest-names',{password:PASS,term});paintIdeas(data.suggestions||[]);}catch(e){alert(e.message||'Failed to generate site names');}}async function refresh(){const data=await post('/dev/api/links/list',{password:PASS});showSupport(data.support);const box=document.getElementById('links');box.innerHTML='';(data.links||[]).forEach(l=>{const d=document.createElement('div');d.className='link';const savedName=l.requestedSubdomain?'<div class="muted">site name: '+esc(l.requestedSubdomain)+'</div>':'';d.innerHTML='<div class="line"><div><div class="url"><a href="'+l.url+'" target="_blank" rel="noreferrer">'+esc(l.url)+'</a></div><div class="muted">status: '+esc(l.status||'unknown')+' • '+new Date(l.createdAt).toLocaleString()+'</div>'+savedName+'</div><button data-id="'+l.id+'">Stop</button></div>';d.querySelector('button').onclick=async()=>{try{await post('/dev/api/links/stop',{password:PASS,id:l.id});await refresh();}catch(e){alert(e.message||'Failed');}};box.appendChild(d);});if((data.links||[]).length===0){box.innerHTML='<p class="muted">No links yet.</p>';}}document.getElementById('login').onclick=async()=>{setErr('');try{PASS=document.getElementById('pw').value||'';await post('/dev/api/login',{password:PASS});document.getElementById('auth').classList.add('hidden');document.getElementById('panel').classList.remove('hidden');await refresh();}catch(e){setErr(e.message||'Auth failed');}};document.getElementById('generate').onclick=generateIdeas;document.getElementById('term').addEventListener('keydown',e=>{if(e.key==='Enter') generateIdeas();});document.getElementById('create').onclick=async()=>{try{const target=document.getElementById('target').value.trim();const desiredSubdomain=document.getElementById('sub').value.trim();await post('/dev/api/links/create',{password:PASS,target,desiredSubdomain});await refresh();}catch(e){alert(e.message||'Failed to create link');}};</script></body></html>`;
 
 function verifyLogPassword(candidate) {
   try {
@@ -538,6 +640,36 @@ const app = Fastify({
                   reason: cloudflared.reason,
                 },
               }));
+            } catch {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Bad Request' }));
+            }
+          });
+          return;
+        }
+      }
+
+      if (pathname === '/dev/api/links/suggest-names') {
+        if (req.method === 'POST') {
+          let body = '';
+          req.on('data', c => { body += c; if (body.length > 8192) req.destroy(); });
+          req.on('end', () => {
+            try {
+              const { password, term } = JSON.parse(body || '{}');
+              if (typeof password !== 'string' || !verifyLogPassword(password)) {
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Unauthorized' }));
+                return;
+              }
+
+              if (typeof term !== 'string' || !term.trim()) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'A search term is required.' }));
+                return;
+              }
+
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ suggestions: generateSiteNameIdeas(term) }));
             } catch {
               res.writeHead(400, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ error: 'Bad Request' }));
