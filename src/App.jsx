@@ -2,7 +2,7 @@ import Routing from './Routing';
 import ReactGA from 'react-ga4';
 import lazyLoad from './lazyWrapper';
 import NotFound from './pages/NotFound';
-import { useEffect, useMemo, memo } from 'react';
+import { useEffect, useMemo, memo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { OptionsProvider, useOptions } from './utils/optionsContext';
 import { initPreload } from './utils/preload';
@@ -26,6 +26,7 @@ const Settings = lazyLoad(importSettings);
 const Updates = lazyLoad(importUpdates);
 const SearchPage = lazyLoad(importSearchPage);
 const Player = lazyLoad(() => import('./pages/Player'));
+const BOOT_STEPS = ['Authenticating...', 'Loading Files...', 'Welcome to Toro V1..'];
 
 initPreload('/materials', importApps);
 initPreload('/docs', importGms);
@@ -44,8 +45,26 @@ function useTracking() {
 
 const ThemedApp = memo(() => {
   const { options } = useOptions();
+  const [splashVisible, setSplashVisible] = useState(true);
+  const [splashClosing, setSplashClosing] = useState(false);
+  const [step, setStep] = useState(0);
+
   useReg();
   useTracking();
+
+  useEffect(() => {
+    const t1 = setTimeout(() => setStep(1), 700);
+    const t2 = setTimeout(() => setStep(2), 1550);
+    const t3 = setTimeout(() => setSplashClosing(true), 2450);
+    const t4 = setTimeout(() => setSplashVisible(false), 3000);
+
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+      clearTimeout(t4);
+    };
+  }, []);
 
   const pages = useMemo(
     () => [
@@ -88,6 +107,17 @@ const ThemedApp = memo(() => {
 
   return (
     <>
+      {splashVisible && (
+        <div className={`toro-splash ${splashClosing ? 'is-closing' : ''}`}>
+          <div className="toro-splash-card">
+            <img src="/icon.svg" alt="Toro" className="toro-splash-logo" />
+            <p className="toro-splash-step">{BOOT_STEPS[step]}</p>
+            <div className="toro-splash-progress">
+              <span className={`toro-splash-progress-bar step-${step + 1}`} />
+            </div>
+          </div>
+        </div>
+      )}
       <InteractiveNetworkBg />
       <Routing pages={pages} />
       <style>{backgroundStyle}</style>

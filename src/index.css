@@ -33,3 +33,91 @@ body {
   font-weight: 500;
   user-select: none;
 }
+
+.toro-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(circle at 20% 20%, rgba(190, 30, 49, 0.22), transparent 42%),
+    radial-gradient(circle at 78% 82%, rgba(190, 30, 49, 0.15), transparent 46%),
+    #080203;
+  transition: opacity 420ms ease, transform 420ms ease;
+}
+
+.toro-splash.is-closing {
+  opacity: 0;
+  transform: scale(1.02);
+}
+
+.toro-splash-card {
+  width: min(88vw, 420px);
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.05));
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.48), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  padding: 1.3rem 1.1rem 1.1rem;
+}
+
+.toro-splash-logo {
+  width: 88px;
+  height: 88px;
+  display: block;
+  margin: 0 auto 0.8rem;
+  animation: toroPulse 1.15s ease-in-out infinite;
+}
+
+.toro-splash-step {
+  text-align: center;
+  color: #ffe6ea;
+  font-size: 0.98rem;
+  letter-spacing: 0.01em;
+  margin-bottom: 0.8rem;
+}
+
+.toro-splash-progress {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+}
+
+.toro-splash-progress-bar {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #ef4960, #ff8a99);
+  transition: width 380ms ease;
+}
+
+.toro-splash-progress-bar.step-1 {
+  width: 34%;
+}
+
+.toro-splash-progress-bar.step-2 {
+  width: 68%;
+}
+
+.toro-splash-progress-bar.step-3 {
+  width: 100%;
+}
+
+@keyframes toroPulse {
+  0% {
+    transform: scale(0.96);
+    filter: drop-shadow(0 0 0 rgba(239, 73, 96, 0));
+  }
+  50% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 14px rgba(239, 73, 96, 0.38));
+  }
+  100% {
+    transform: scale(0.96);
+    filter: drop-shadow(0 0 0 rgba(239, 73, 96, 0));
+  }
+}
