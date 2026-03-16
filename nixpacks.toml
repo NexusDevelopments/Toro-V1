@@ -3,7 +3,7 @@ NODE_ENV = "production"
 PORT = "3000"
 
 [phases.setup]
-nixPkgs = ["nodejs_20"]
+nixPkgs = ["nodejs_20", "cloudflared"]
 
 [phases.install]
 cmds = ["npm ci"]

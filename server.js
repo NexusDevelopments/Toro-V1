@@ -7,8 +7,9 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "node:http";
 import { scryptSync, timingSafeEqual, randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { logging, server as wisp } from "@mercuryworkshop/wisp-js/server";
 import { createBareServer } from "@tomphttp/bare-server-node";
 import { MasqrMiddleware } from "./masqr.js";
@@ -50,6 +51,54 @@ const BAD_WORDS = (process.env.CHAT_BLOCKED_WORDS || 'fuck,shit,bitch,asshole,cu
   .split(',')
   .map((w) => w.trim().toLowerCase())
   .filter(Boolean);
+
+function getCloudflaredSupport() {
+  if (process.env.DISABLE_CLOUDFLARED === 'true') {
+    return {
+      available: false,
+      command: null,
+      reason: 'Cloudflare quick tunnels are disabled for this deployment.',
+    };
+  }
+
+  const configuredCommand = String(process.env.CLOUDFLARED_PATH || '').trim();
+  if (configuredCommand) {
+    const probe = spawnSync(configuredCommand, ['--version'], { stdio: 'ignore' });
+    if (!probe.error) {
+      return { available: true, command: configuredCommand, reason: '' };
+    }
+
+    return {
+      available: false,
+      command: configuredCommand,
+      reason: `CLOUDFLARED_PATH is set, but the binary is not executable (${probe.error?.code || 'unknown'}).`,
+    };
+  }
+
+  if (process.platform === 'win32') {
+    const bundledCommand = join(__dirname, 'cloudflared.exe');
+    if (existsSync(bundledCommand)) {
+      return { available: true, command: bundledCommand, reason: '' };
+    }
+
+    return {
+      available: false,
+      command: bundledCommand,
+      reason: 'Bundled cloudflared.exe was not found on this server.',
+    };
+  }
+
+  const probe = spawnSync('cloudflared', ['--version'], { stdio: 'ignore' });
+  if (!probe.error) {
+    return { available: true, command: 'cloudflared', reason: '' };
+  }
+
+  return {
+    available: false,
+    command: 'cloudflared',
+    reason: 'Cloudflare quick tunnels are unavailable here because cloudflared is not installed on the server.',
+  };
+}
 
 async function loadDevState() {
   try {
@@ -476,12 +525,19 @@ const app = Fastify({
                 res.end(JSON.stringify({ error: 'Unauthorized' }));
                 return;
               }
+              const cloudflared = getCloudflaredSupport();
               const links = devState.links.map((l) => ({
                 ...l,
                 status: tunnelProcesses.has(l.id) ? 'running' : l.status || 'stopped',
               }));
               res.writeHead(200, { 'Content-Type': 'application/json' });
-              res.end(JSON.stringify({ links }));
+              res.end(JSON.stringify({
+                links,
+                support: {
+                  available: cloudflared.available,
+                  reason: cloudflared.reason,
+                },
+              }));
             } catch {
               res.writeHead(400, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ error: 'Bad Request' }));
@@ -542,8 +598,16 @@ const app = Fastify({
                 return;
               }
 
+              const cloudflared = getCloudflaredSupport();
+              if (!cloudflared.available || !cloudflared.command) {
+                res.writeHead(503, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({
+                  error: cloudflared.reason,
+                }));
+                return;
+              }
+
               const linkId = randomUUID();
-              const cmd = process.env.CLOUDFLARED_PATH || (process.platform === 'win32' ? '.\\cloudflared.exe' : 'cloudflared');
               const args = [
                 'tunnel',
                 '--url', targetUrl.toString(),
@@ -551,7 +615,7 @@ const app = Fastify({
                 '--no-autoupdate',
               ];
 
-              const child = spawn(cmd, args, { cwd: process.cwd(), stdio: ['ignore', 'pipe', 'pipe'] });
+              const child = spawn(cloudflared.command, args, { cwd: process.cwd(), stdio: ['ignore', 'pipe', 'pipe'] });
               let output = '';
               let finished = false;
 
@@ -606,7 +670,9 @@ const app = Fastify({
               child.on('error', async (err) => {
                 await done(
                   {
-                    error: `Failed to start cloudflared (${err?.code || 'unknown'}). Ensure cloudflared is installed and accessible.`,
+                    error: err?.code === 'ENOENT'
+                      ? 'Cloudflare quick tunnels are unavailable here because cloudflared is not installed on the server.'
+                      : `Failed to start cloudflared (${err?.code || 'unknown'}). Ensure cloudflared is installed and accessible.`,
                   },
                   500,
                 );
