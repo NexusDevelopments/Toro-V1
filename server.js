@@ -6,7 +6,7 @@ import fastifyCookie from "@fastify/cookie";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "node:http";
-import { scryptSync, timingSafeEqual } from "node:crypto";
+import { scryptSync, timingSafeEqual, randomUUID } from "node:crypto";
 import { logging, server as wisp } from "@mercuryworkshop/wisp-js/server";
 import { createBareServer } from "@tomphttp/bare-server-node";
 import { MasqrMiddleware } from "./masqr.js";
@@ -24,6 +24,21 @@ const LOG_SALT = 'a3f8c1e290bd4751';
 const LOG_HASH = Buffer.from('8a5fd87579ddd37ba91e7fb02c4a4d178d53752f6726283ea44714f8261eaa4a1e3b8e005b813e942572d8dd873de77e23a559517a24068c9172577b6b7c875e', 'hex');
 const ipLog = new Map(); // Map<ip, {city,state,country,vpn,isp,geoFetched,device,visits[]}>
 const _geoQ = new Set();
+const devState = {
+  maintenanceEnabled: false,
+  maintenanceMessage: 'Server Down Due to Maintenance',
+  updates: [
+    {
+      id: randomUUID(),
+      text: 'DuckDuckGo is now the default search engine, and Settings now lets you switch between DuckDuckGo and Google.',
+      ts: new Date().toISOString(),
+    },
+  ],
+};
+
+const maintenanceHtml = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Maintenance</title><style>*{box-sizing:border-box;margin:0;padding:0}body{min-height:100vh;display:grid;place-items:center;background:#090304;color:#f4d4d8;font-family:ui-sans-serif,system-ui,sans-serif;padding:24px}.card{max-width:760px;width:100%;background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.16);backdrop-filter:blur(10px);border-radius:18px;padding:28px}h1{font-size:clamp(1.6rem,3vw,2.3rem);color:#ff7a8a;margin-bottom:10px}p{opacity:.9;line-height:1.6;font-size:1rem}.sub{margin-top:10px;opacity:.6;font-size:.9rem}</style></head><body><div class="card"><h1>Server Down Due to Maintenance</h1><p id="msg"></p><p class="sub">Please check back shortly.</p></div><script>const m=${JSON.stringify('MSG_PLACEHOLDER')};document.getElementById('msg').textContent=m&&m!=='MSG_PLACEHOLDER'?m:'We are currently performing maintenance.';</script></body></html>`;
+
+const devHtml = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Dev Panel</title><style>*{box-sizing:border-box;margin:0;padding:0}body{background:#090304;color:#f4d4d8;font-family:ui-sans-serif,system-ui,sans-serif;min-height:100vh;padding:24px}.wrap{max-width:900px;margin:0 auto}.card{background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(10px);border-radius:16px;padding:18px;margin-bottom:16px}h1{font-size:2rem;color:#ff7788;margin-bottom:14px}h2{font-size:1.05rem;margin-bottom:12px;color:#ffc7cf}input,textarea{width:100%;background:#130709;border:1px solid rgba(255,255,255,.2);border-radius:12px;color:#fff;padding:11px 12px;outline:none}textarea{min-height:92px;resize:vertical}button{background:linear-gradient(135deg,rgba(255,255,255,.15),rgba(255,255,255,.06));border:1px solid rgba(255,255,255,.26);color:#ffecef;border-radius:999px;padding:9px 14px;cursor:pointer}button:hover{border-color:rgba(255,255,255,.45)}.row{display:flex;gap:10px;flex-wrap:wrap}.muted{opacity:.65;font-size:.9rem}.hidden{display:none}ul{margin-top:10px;display:grid;gap:8px;padding-left:18px}</style></head><body><div class="wrap"><h1>Dev Panel</h1><div id="auth" class="card"><h2>Authenticate</h2><input id="pw" type="password" placeholder="Admin password" /><div style="height:10px"></div><button id="login">Enter Panel</button><div id="err" class="muted" style="color:#ff9aa8;margin-top:10px;display:none"></div></div><div id="panel" class="hidden"><div class="card"><h2>Maintenance Mode</h2><p class="muted">Blocks normal site routes and shows the maintenance screen. Dev and IP logs remain accessible.</p><div style="height:10px"></div><textarea id="maintMsg" placeholder="Maintenance message"></textarea><div style="height:10px"></div><div class="row"><button id="enableMaint">Enable Maintenance</button><button id="disableMaint">Disable Maintenance</button></div></div><div class="card"><h2>Add Update</h2><textarea id="updateText" placeholder="Write update text..."></textarea><div style="height:10px"></div><button id="addUpdate">Add Update</button><ul id="updates"></ul></div></div></div><script>let PASS='';function esc(s){return String(s||'').replace(/[&<>\"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[m]||m));}function setErr(t){const e=document.getElementById('err');if(!t){e.style.display='none';return;}e.style.display='block';e.textContent=t;}async function post(url,data){const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const j=await r.json().catch(()=>({}));if(!r.ok) throw new Error(j.error||('Request failed '+r.status));return j;}function paintUpdates(items){const ul=document.getElementById('updates');ul.innerHTML='';items.forEach(x=>{const li=document.createElement('li');li.innerHTML='<span>'+esc(x.text)+'</span>';ul.appendChild(li);});}document.getElementById('login').onclick=async()=>{setErr('');try{PASS=document.getElementById('pw').value||'';const r=await post('/dev/api/login',{password:PASS});document.getElementById('auth').classList.add('hidden');document.getElementById('panel').classList.remove('hidden');document.getElementById('maintMsg').value=r.state.maintenanceMessage||'';paintUpdates(r.state.updates||[]);}catch(e){setErr(e.message||'Authentication failed');}};document.getElementById('enableMaint').onclick=async()=>{try{const msg=document.getElementById('maintMsg').value.trim();await post('/dev/api/maintenance',{password:PASS,enabled:true,message:msg});alert('Maintenance enabled');}catch(e){alert(e.message||'Failed');}};document.getElementById('disableMaint').onclick=async()=>{try{await post('/dev/api/maintenance',{password:PASS,enabled:false,message:''});alert('Maintenance disabled');}catch(e){alert(e.message||'Failed');}};document.getElementById('addUpdate').onclick=async()=>{try{const text=document.getElementById('updateText').value.trim();if(!text)return;const r=await post('/dev/api/updates/add',{password:PASS,text});document.getElementById('updateText').value='';paintUpdates(r.updates||[]);}catch(e){alert(e.message||'Failed');}};</script></body></html>`;
 
 function verifyLogPassword(candidate) {
   try {
@@ -92,8 +107,104 @@ server.on("upgrade", (req, sock, head) =>
 const app = Fastify({
   serverFactory: h => {
     server.on("request", (req, res) => {
-      // Admin endpoint: bypass Fastify/static entirely so React Router never intercepts it
+      // Admin endpoints: bypass Fastify/static entirely so React Router never intercepts them
       const pathname = new URL(req.url || '/', 'http://local').pathname;
+
+      if (pathname === '/dev/home' || pathname === '/dev/home/') {
+        if (req.method === 'GET') {
+          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+          res.end(devHtml);
+          return;
+        }
+      }
+
+      if (pathname === '/dev/api/login') {
+        if (req.method === 'POST') {
+          let body = '';
+          req.on('data', c => { body += c; if (body.length > 8192) req.destroy(); });
+          req.on('end', () => {
+            try {
+              const { password } = JSON.parse(body || '{}');
+              if (typeof password !== 'string' || !verifyLogPassword(password)) {
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Unauthorized' }));
+                return;
+              }
+              res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+              res.end(JSON.stringify({
+                ok: true,
+                state: {
+                  maintenanceEnabled: devState.maintenanceEnabled,
+                  maintenanceMessage: devState.maintenanceMessage,
+                  updates: devState.updates,
+                },
+              }));
+            } catch {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Bad Request' }));
+            }
+          });
+          return;
+        }
+      }
+
+      if (pathname === '/dev/api/maintenance') {
+        if (req.method === 'POST') {
+          let body = '';
+          req.on('data', c => { body += c; if (body.length > 8192) req.destroy(); });
+          req.on('end', () => {
+            try {
+              const { password, enabled, message } = JSON.parse(body || '{}');
+              if (typeof password !== 'string' || !verifyLogPassword(password)) {
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Unauthorized' }));
+                return;
+              }
+              devState.maintenanceEnabled = !!enabled;
+              if (typeof message === 'string' && message.trim()) {
+                devState.maintenanceMessage = message.trim();
+              }
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ ok: true, maintenanceEnabled: devState.maintenanceEnabled, maintenanceMessage: devState.maintenanceMessage }));
+            } catch {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Bad Request' }));
+            }
+          });
+          return;
+        }
+      }
+
+      if (pathname === '/dev/api/updates/add') {
+        if (req.method === 'POST') {
+          let body = '';
+          req.on('data', c => { body += c; if (body.length > 32768) req.destroy(); });
+          req.on('end', () => {
+            try {
+              const { password, text } = JSON.parse(body || '{}');
+              if (typeof password !== 'string' || !verifyLogPassword(password)) {
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Unauthorized' }));
+                return;
+              }
+              if (typeof text !== 'string' || !text.trim()) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Update text required' }));
+                return;
+              }
+              devState.updates.unshift({ id: randomUUID(), text: text.trim(), ts: new Date().toISOString() });
+              if (devState.updates.length > 100) devState.updates.length = 100;
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ ok: true, updates: devState.updates }));
+            } catch {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Bad Request' }));
+            }
+          });
+          return;
+        }
+      }
+
       if (pathname === '/logs/ips' || pathname === '/logs/ips/') {
         if (req.method === 'GET') {
           res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -125,6 +236,15 @@ const app = Fastify({
           return;
         }
       }
+
+      const exemptPath = pathname.startsWith('/logs/') || pathname.startsWith('/dev/') || pathname === '/health';
+      if (devState.maintenanceEnabled && !exemptPath) {
+        const html = maintenanceHtml.replace('MSG_PLACEHOLDER', devState.maintenanceMessage || 'We are currently performing maintenance.');
+        res.writeHead(503, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+        res.end(html);
+        return;
+      }
+
       bare?.shouldRoute(req) ? bare.routeRequest(req, res) : h(req, res);
     });
     return server;
@@ -161,7 +281,7 @@ if (process.env.MASQR === "true")
 
 // Record every incoming request IP (skip the log viewer itself to reduce noise)
 app.addHook('onRequest', async (req) => {
-  if (!req.url.startsWith('/logs/')) recordIp(req.raw);
+  if (!req.url.startsWith('/logs/') && !req.url.startsWith('/dev/')) recordIp(req.raw);
 });
 
 const proxy = (url, type = "application/javascript") => async (req, reply) => {
@@ -202,6 +322,7 @@ app.get("/assets-fb/*", proxy(req => `https://dogeub-assets.pages.dev/img/server
 app.get("/js/script.js", proxy(() => "https://byod.privatedns.org/js/script.js"));
 app.get("/ds", (req, res) => res.redirect("https://discord.gg/ZBef7HnAeg"));
 app.get('/health', async () => ({ ok: true }));
+app.get('/api/updates', async () => devState.updates);
 
 // --- /logs/ips : password-protected IP viewer ---
 const logsHtml = `<!DOCTYPE html>
