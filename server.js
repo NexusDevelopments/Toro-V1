@@ -568,8 +568,7 @@ const app = Fastify({
                 return m ? m[0] : null;
               };
 
-              child.stdout.on('data', (d) => {
-                output += String(d);
+              const tryCaptureTunnelUrl = () => {
                 const url = parseUrl();
                 if (!url || tunnelProcesses.has(linkId)) return;
 
@@ -592,18 +591,44 @@ const app = Fastify({
                   note:
                     'Cloudflare quick tunnels do not support custom subdomain prefixes under trycloudflare.com. For custom names, use your own Cloudflare domain with named tunnels.',
                 });
+              };
+
+              child.stdout.on('data', (d) => {
+                output += String(d);
+                tryCaptureTunnelUrl();
               });
 
               child.stderr.on('data', (d) => {
                 output += String(d);
+                tryCaptureTunnelUrl();
               });
 
-              child.on('exit', async () => {
+              child.on('error', async (err) => {
+                await done(
+                  {
+                    error: `Failed to start cloudflared (${err?.code || 'unknown'}). Ensure cloudflared is installed and accessible.`,
+                  },
+                  500,
+                );
+              });
+
+              child.on('exit', async (code, signal) => {
                 tunnelProcesses.delete(linkId);
                 const idx = devState.links.findIndex((l) => l.id === linkId);
                 if (idx !== -1) {
                   devState.links[idx].status = 'stopped';
                   await saveDevState();
+                }
+
+                if (!finished) {
+                  const tail = output.split('\n').slice(-8).join('\n').trim();
+                  await done(
+                    {
+                      error: `cloudflared exited before a tunnel URL was created (code: ${code ?? 'null'}, signal: ${signal ?? 'null'}).`,
+                      details: tail || 'No cloudflared output captured.',
+                    },
+                    502,
+                  );
                 }
               });
 
