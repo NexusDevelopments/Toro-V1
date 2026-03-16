@@ -7,6 +7,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "node:http";
 import { scryptSync, timingSafeEqual, randomUUID } from "node:crypto";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { logging, server as wisp } from "@mercuryworkshop/wisp-js/server";
 import { createBareServer } from "@tomphttp/bare-server-node";
 import { MasqrMiddleware } from "./masqr.js";
@@ -35,6 +36,56 @@ const devState = {
     },
   ],
 };
+const DEV_STATE_DIR = join(__dirname, 'data');
+const DEV_STATE_FILE = join(DEV_STATE_DIR, 'dev-state.json');
+
+async function loadDevState() {
+  try {
+    const raw = await readFile(DEV_STATE_FILE, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (typeof parsed?.maintenanceEnabled === 'boolean') {
+      devState.maintenanceEnabled = parsed.maintenanceEnabled;
+    }
+    if (typeof parsed?.maintenanceMessage === 'string' && parsed.maintenanceMessage.trim()) {
+      devState.maintenanceMessage = parsed.maintenanceMessage;
+    }
+    if (Array.isArray(parsed?.updates)) {
+      devState.updates = parsed.updates
+        .filter((u) => typeof u?.text === 'string' && u.text.trim())
+        .slice(0, 100)
+        .map((u) => ({
+          id: typeof u.id === 'string' ? u.id : randomUUID(),
+          text: u.text.trim(),
+          ts: typeof u.ts === 'string' ? u.ts : new Date().toISOString(),
+        }));
+    }
+  } catch {
+    // No persisted file yet; defaults stay in memory.
+  }
+}
+
+async function saveDevState() {
+  try {
+    await mkdir(DEV_STATE_DIR, { recursive: true });
+    await writeFile(
+      DEV_STATE_FILE,
+      JSON.stringify(
+        {
+          maintenanceEnabled: devState.maintenanceEnabled,
+          maintenanceMessage: devState.maintenanceMessage,
+          updates: devState.updates,
+        },
+        null,
+        2,
+      ),
+      'utf8',
+    );
+  } catch (err) {
+    console.error('Failed to persist dev state:', err);
+  }
+}
+
+await loadDevState();
 
 const maintenanceHtml = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Maintenance</title><style>*{box-sizing:border-box;margin:0;padding:0}body{min-height:100vh;display:grid;place-items:center;background:#090304;color:#f4d4d8;font-family:ui-sans-serif,system-ui,sans-serif;padding:24px}.card{max-width:760px;width:100%;background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.16);backdrop-filter:blur(10px);border-radius:18px;padding:28px}h1{font-size:clamp(1.6rem,3vw,2.3rem);color:#ff7a8a;margin-bottom:10px}p{opacity:.9;line-height:1.6;font-size:1rem}.sub{margin-top:10px;opacity:.6;font-size:.9rem}</style></head><body><div class="card"><h1>Server Down Due to Maintenance</h1><p id="msg"></p><p class="sub">Please check back shortly.</p></div><script>const m=${JSON.stringify('MSG_PLACEHOLDER')};document.getElementById('msg').textContent=m&&m!=='MSG_PLACEHOLDER'?m:'We are currently performing maintenance.';</script></body></html>`;
 
@@ -152,7 +203,7 @@ const app = Fastify({
         if (req.method === 'POST') {
           let body = '';
           req.on('data', c => { body += c; if (body.length > 8192) req.destroy(); });
-          req.on('end', () => {
+          req.on('end', async () => {
             try {
               const { password, enabled, message } = JSON.parse(body || '{}');
               if (typeof password !== 'string' || !verifyLogPassword(password)) {
@@ -164,6 +215,7 @@ const app = Fastify({
               if (typeof message === 'string' && message.trim()) {
                 devState.maintenanceMessage = message.trim();
               }
+              await saveDevState();
               res.writeHead(200, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ ok: true, maintenanceEnabled: devState.maintenanceEnabled, maintenanceMessage: devState.maintenanceMessage }));
             } catch {
@@ -179,7 +231,7 @@ const app = Fastify({
         if (req.method === 'POST') {
           let body = '';
           req.on('data', c => { body += c; if (body.length > 32768) req.destroy(); });
-          req.on('end', () => {
+          req.on('end', async () => {
             try {
               const { password, text } = JSON.parse(body || '{}');
               if (typeof password !== 'string' || !verifyLogPassword(password)) {
@@ -194,6 +246,7 @@ const app = Fastify({
               }
               devState.updates.unshift({ id: randomUUID(), text: text.trim(), ts: new Date().toISOString() });
               if (devState.updates.length > 100) devState.updates.length = 100;
+              await saveDevState();
               res.writeHead(200, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ ok: true, updates: devState.updates }));
             } catch {
