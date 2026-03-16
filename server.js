@@ -43,6 +43,8 @@ const DEV_STATE_DIR = join(__dirname, 'data');
 const DEV_STATE_FILE = join(DEV_STATE_DIR, 'dev-state.json');
 const IP_LOG_FILE = join(DEV_STATE_DIR, 'ip-logs.json');
 const CHAT_STATE_FILE = join(DEV_STATE_DIR, 'chat-state.json');
+const DATABASE_URL = String(process.env.DATABASE_URL || '').trim();
+let pgStateClient = null;
 let ipLogSaveTimer = null;
 let chatSaveTimer = null;
 const tunnelProcesses = new Map();
@@ -385,16 +387,16 @@ function getCloudflaredSupport() {
 }
 
 async function loadDevState() {
-  try {
-    const raw = await readFile(DEV_STATE_FILE, 'utf8');
-    const parsed = JSON.parse(raw);
-    if (typeof parsed?.maintenanceEnabled === 'boolean') {
+  const applyParsedDevState = (parsed) => {
+    if (!parsed || typeof parsed !== 'object') return;
+
+    if (typeof parsed.maintenanceEnabled === 'boolean') {
       devState.maintenanceEnabled = parsed.maintenanceEnabled;
     }
-    if (typeof parsed?.maintenanceMessage === 'string' && parsed.maintenanceMessage.trim()) {
+    if (typeof parsed.maintenanceMessage === 'string' && parsed.maintenanceMessage.trim()) {
       devState.maintenanceMessage = parsed.maintenanceMessage;
     }
-    if (Array.isArray(parsed?.links)) {
+    if (Array.isArray(parsed.links)) {
       devState.links = parsed.links
         .filter((l) => typeof l?.id === 'string' && typeof l?.url === 'string')
         .slice(0, 30)
@@ -405,9 +407,12 @@ async function loadDevState() {
           target: typeof l.target === 'string' ? l.target : 'https://torov1.up.railway.app',
           createdAt: typeof l.createdAt === 'string' ? l.createdAt : new Date().toISOString(),
           status: typeof l.status === 'string' ? l.status : 'unknown',
+          provider: typeof l.provider === 'string' ? l.provider : 'cloudflared',
+          providerZoneId: typeof l.providerZoneId === 'number' ? l.providerZoneId : undefined,
+          cfWorkerName: typeof l.cfWorkerName === 'string' ? l.cfWorkerName : undefined,
         }));
     }
-    if (Array.isArray(parsed?.updates)) {
+    if (Array.isArray(parsed.updates)) {
       devState.updates = parsed.updates
         .filter((u) => typeof u?.text === 'string' && u.text.trim())
         .slice(0, 100)
@@ -417,12 +422,88 @@ async function loadDevState() {
           ts: typeof u.ts === 'string' ? u.ts : new Date().toISOString(),
         }));
     }
+  };
+
+  const getPgStateClient = async () => {
+    if (!DATABASE_URL) return null;
+    if (pgStateClient) return pgStateClient;
+
+    const pgModule = await import('pg');
+    const Client = pgModule.Client || pgModule.default?.Client;
+    if (!Client) throw new Error('pg Client export not found');
+
+    const client = new Client({
+      connectionString: DATABASE_URL,
+      ssl: DATABASE_URL.includes('sslmode=disable') ? false : { rejectUnauthorized: false },
+    });
+    await client.connect();
+    await client.query(
+      'CREATE TABLE IF NOT EXISTS app_state (state_key TEXT PRIMARY KEY, state_value JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())'
+    );
+    pgStateClient = client;
+    return client;
+  };
+
+  // Prefer Postgres when DATABASE_URL is configured so state survives Railway deploys.
+  if (DATABASE_URL) {
+    try {
+      const client = await getPgStateClient();
+      if (client) {
+        const result = await client.query('SELECT state_value FROM app_state WHERE state_key = $1 LIMIT 1', ['dev_state']);
+        if (result.rows?.[0]?.state_value) {
+          applyParsedDevState(result.rows[0].state_value);
+          return;
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load dev state from Postgres; falling back to file:', err?.message || err);
+    }
+  }
+
+  try {
+    const raw = await readFile(DEV_STATE_FILE, 'utf8');
+    applyParsedDevState(JSON.parse(raw));
   } catch {
     // No persisted file yet; defaults stay in memory.
   }
 }
 
 async function saveDevState() {
+  if (DATABASE_URL) {
+    try {
+      if (!pgStateClient) {
+        const pgModule = await import('pg');
+        const Client = pgModule.Client || pgModule.default?.Client;
+        if (!Client) throw new Error('pg Client export not found');
+
+        pgStateClient = new Client({
+          connectionString: DATABASE_URL,
+          ssl: DATABASE_URL.includes('sslmode=disable') ? false : { rejectUnauthorized: false },
+        });
+        await pgStateClient.connect();
+      }
+
+      await pgStateClient.query(
+        'CREATE TABLE IF NOT EXISTS app_state (state_key TEXT PRIMARY KEY, state_value JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())'
+      );
+      await pgStateClient.query(
+        'INSERT INTO app_state (state_key, state_value, updated_at) VALUES ($1, $2::jsonb, NOW()) ON CONFLICT (state_key) DO UPDATE SET state_value = EXCLUDED.state_value, updated_at = NOW()',
+        [
+          'dev_state',
+          JSON.stringify({
+            maintenanceEnabled: devState.maintenanceEnabled,
+            maintenanceMessage: devState.maintenanceMessage,
+            links: devState.links,
+            updates: devState.updates,
+          }),
+        ]
+      );
+      return;
+    } catch (err) {
+      console.error('Failed to persist dev state to Postgres; falling back to file:', err?.message || err);
+    }
+  }
+
   try {
     await mkdir(DEV_STATE_DIR, { recursive: true });
     await writeFile(
