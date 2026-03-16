@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { createServer } from "node:http";
 import { scryptSync, timingSafeEqual, randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
 import { logging, server as wisp } from "@mercuryworkshop/wisp-js/server";
 import { createBareServer } from "@tomphttp/bare-server-node";
 import { MasqrMiddleware } from "./masqr.js";
@@ -28,6 +29,7 @@ const _geoQ = new Set();
 const devState = {
   maintenanceEnabled: false,
   maintenanceMessage: 'Server Down Due to Maintenance',
+  links: [],
   updates: [
     {
       id: randomUUID(),
@@ -42,6 +44,7 @@ const IP_LOG_FILE = join(DEV_STATE_DIR, 'ip-logs.json');
 const CHAT_STATE_FILE = join(DEV_STATE_DIR, 'chat-state.json');
 let ipLogSaveTimer = null;
 let chatSaveTimer = null;
+const tunnelProcesses = new Map();
 const CHAT_USER_TTL_MS = 120000;
 const BAD_WORDS = (process.env.CHAT_BLOCKED_WORDS || 'fuck,shit,bitch,asshole,cunt,porn,sex')
   .split(',')
@@ -57,6 +60,19 @@ async function loadDevState() {
     }
     if (typeof parsed?.maintenanceMessage === 'string' && parsed.maintenanceMessage.trim()) {
       devState.maintenanceMessage = parsed.maintenanceMessage;
+    }
+    if (Array.isArray(parsed?.links)) {
+      devState.links = parsed.links
+        .filter((l) => typeof l?.id === 'string' && typeof l?.url === 'string')
+        .slice(0, 30)
+        .map((l) => ({
+          id: l.id,
+          url: l.url,
+          requestedSubdomain: typeof l.requestedSubdomain === 'string' ? l.requestedSubdomain : '',
+          target: typeof l.target === 'string' ? l.target : 'https://torov1.up.railway.app',
+          createdAt: typeof l.createdAt === 'string' ? l.createdAt : new Date().toISOString(),
+          status: typeof l.status === 'string' ? l.status : 'unknown',
+        }));
     }
     if (Array.isArray(parsed?.updates)) {
       devState.updates = parsed.updates
@@ -82,6 +98,7 @@ async function saveDevState() {
         {
           maintenanceEnabled: devState.maintenanceEnabled,
           maintenanceMessage: devState.maintenanceMessage,
+          links: devState.links,
           updates: devState.updates,
         },
         null,
@@ -261,6 +278,8 @@ const maintenanceHtml = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF
 
 const devHtml = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Dev Panel</title><style>*{box-sizing:border-box;margin:0;padding:0}body{background:#090304;color:#f4d4d8;font-family:ui-sans-serif,system-ui,sans-serif;min-height:100vh;padding:24px}.wrap{max-width:900px;margin:0 auto}.card{background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(10px);border-radius:16px;padding:18px;margin-bottom:16px}h1{font-size:2rem;color:#ff7788;margin-bottom:14px}h2{font-size:1.05rem;margin-bottom:12px;color:#ffc7cf}input,textarea{width:100%;background:#130709;border:1px solid rgba(255,255,255,.2);border-radius:12px;color:#fff;padding:11px 12px;outline:none}textarea{min-height:92px;resize:vertical}button{background:linear-gradient(135deg,rgba(255,255,255,.15),rgba(255,255,255,.06));border:1px solid rgba(255,255,255,.26);color:#ffecef;border-radius:999px;padding:9px 14px;cursor:pointer}button:hover{border-color:rgba(255,255,255,.45)}.row{display:flex;gap:10px;flex-wrap:wrap}.muted{opacity:.65;font-size:.9rem}.hidden{display:none}ul{margin-top:10px;display:grid;gap:8px;padding-left:18px}</style></head><body><div class="wrap"><h1>Dev Panel</h1><div id="auth" class="card"><h2>Authenticate</h2><input id="pw" type="password" placeholder="Admin password" /><div style="height:10px"></div><button id="login">Enter Panel</button><div id="err" class="muted" style="color:#ff9aa8;margin-top:10px;display:none"></div></div><div id="panel" class="hidden"><div class="card"><h2>Maintenance Mode</h2><p class="muted">Blocks normal site routes and shows the maintenance screen. Dev and IP logs remain accessible.</p><div style="height:10px"></div><textarea id="maintMsg" placeholder="Maintenance message"></textarea><div style="height:10px"></div><div class="row"><button id="enableMaint">Enable Maintenance</button><button id="disableMaint">Disable Maintenance</button></div></div><div class="card"><h2>Add Update</h2><textarea id="updateText" placeholder="Write update text..."></textarea><div style="height:10px"></div><button id="addUpdate">Add Update</button><ul id="updates"></ul></div></div></div><script>let PASS='';function esc(s){return String(s||'').replace(/[&<>\"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[m]||m));}function setErr(t){const e=document.getElementById('err');if(!t){e.style.display='none';return;}e.style.display='block';e.textContent=t;}async function post(url,data){const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const j=await r.json().catch(()=>({}));if(!r.ok) throw new Error(j.error||('Request failed '+r.status));return j;}function paintUpdates(items){const ul=document.getElementById('updates');ul.innerHTML='';items.forEach(x=>{const li=document.createElement('li');li.innerHTML='<span>'+esc(x.text)+'</span>';ul.appendChild(li);});}document.getElementById('login').onclick=async()=>{setErr('');try{PASS=document.getElementById('pw').value||'';const r=await post('/dev/api/login',{password:PASS});document.getElementById('auth').classList.add('hidden');document.getElementById('panel').classList.remove('hidden');document.getElementById('maintMsg').value=r.state.maintenanceMessage||'';paintUpdates(r.state.updates||[]);}catch(e){setErr(e.message||'Authentication failed');}};document.getElementById('enableMaint').onclick=async()=>{try{const msg=document.getElementById('maintMsg').value.trim();await post('/dev/api/maintenance',{password:PASS,enabled:true,message:msg});alert('Maintenance enabled');}catch(e){alert(e.message||'Failed');}};document.getElementById('disableMaint').onclick=async()=>{try{await post('/dev/api/maintenance',{password:PASS,enabled:false,message:''});alert('Maintenance disabled');}catch(e){alert(e.message||'Failed');}};document.getElementById('addUpdate').onclick=async()=>{try{const text=document.getElementById('updateText').value.trim();if(!text)return;const r=await post('/dev/api/updates/add',{password:PASS,text});document.getElementById('updateText').value='';paintUpdates(r.updates||[]);}catch(e){alert(e.message||'Failed');}};</script></body></html>`;
 
+const devLinksHtml = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Dev Links</title><style>*{box-sizing:border-box;margin:0;padding:0}body{background:#090304;color:#f4d4d8;font-family:ui-sans-serif,system-ui,sans-serif;min-height:100vh;padding:24px}.wrap{max-width:960px;margin:0 auto}.card{background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(10px);border-radius:16px;padding:18px;margin-bottom:16px}h1{font-size:2rem;color:#ff7788;margin-bottom:8px}h2{font-size:1.04rem;margin-bottom:10px;color:#ffc7cf}.muted{opacity:.7;font-size:.84rem}input{width:100%;padding:10px 12px;border-radius:999px;background:#130709;border:1px solid rgba(255,255,255,.2);color:#fff;outline:none}button{background:linear-gradient(135deg,rgba(255,255,255,.15),rgba(255,255,255,.06));border:1px solid rgba(255,255,255,.26);color:#ffecef;border-radius:999px;padding:9px 14px;cursor:pointer}button:hover{border-color:rgba(255,255,255,.45)}.row{display:flex;gap:10px;flex-wrap:wrap}.hidden{display:none}.link{padding:10px;border:1px solid rgba(255,255,255,.14);border-radius:12px;background:rgba(0,0,0,.26)}.line{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap}.url{font-size:.86rem;word-break:break-all}.warn{margin-top:8px;color:#ffb8c0;font-size:.8rem}</style></head><body><div class="wrap"><h1>Dev Links</h1><p class="muted">Create temporary Cloudflare quick-tunnel links. Multiple links are supported.</p><div id="auth" class="card"><h2>Authenticate</h2><input id="pw" type="password" placeholder="Admin password"/><div style="height:10px"></div><button id="login">Enter</button><p id="err" class="warn" style="display:none"></p></div><div id="panel" class="hidden"><div class="card"><h2>Create Link</h2><div class="row"><input id="target" value="https://torov1.up.railway.app"/></div><div style="height:8px"></div><div class="row"><input id="sub" placeholder="Desired subdomain (info only, trycloudflare ignores this)"/></div><div style="height:10px"></div><div class="row"><button id="create">Create Temporary Link</button></div><p class="warn">You cannot choose a custom prefix under *.trycloudflare.com. For custom subdomains, use your own Cloudflare domain.</p></div><div class="card"><h2>Active / Saved Links</h2><div id="links" style="display:grid;gap:8px"></div></div></div></div><script>let PASS='';function esc(s){return String(s||'').replace(/[&<>\"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[m]||m));}async function post(url,data){const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const j=await r.json().catch(()=>({}));if(!r.ok) throw new Error(j.error||('Request failed '+r.status));return j;}function setErr(t){const e=document.getElementById('err');if(!t){e.style.display='none';return;}e.style.display='block';e.textContent=t;}async function refresh(){const data=await post('/dev/api/links/list',{password:PASS});const box=document.getElementById('links');box.innerHTML='';(data.links||[]).forEach(l=>{const d=document.createElement('div');d.className='link';d.innerHTML='<div class="line"><div><div class="url"><a href="'+l.url+'" target="_blank" rel="noreferrer">'+esc(l.url)+'</a></div><div class="muted">status: '+esc(l.status||'unknown')+' • '+new Date(l.createdAt).toLocaleString()+'</div></div><button data-id="'+l.id+'">Stop</button></div>';d.querySelector('button').onclick=async()=>{try{await post('/dev/api/links/stop',{password:PASS,id:l.id});await refresh();}catch(e){alert(e.message||'Failed');}};box.appendChild(d);});if((data.links||[]).length===0){box.innerHTML='<p class="muted">No links yet.</p>';}}document.getElementById('login').onclick=async()=>{setErr('');try{PASS=document.getElementById('pw').value||'';await post('/dev/api/login',{password:PASS});document.getElementById('auth').classList.add('hidden');document.getElementById('panel').classList.remove('hidden');await refresh();}catch(e){setErr(e.message||'Auth failed');}};document.getElementById('create').onclick=async()=>{try{const target=document.getElementById('target').value.trim();const desiredSubdomain=document.getElementById('sub').value.trim();await post('/dev/api/links/create',{password:PASS,target,desiredSubdomain});await refresh();}catch(e){alert(e.message||'Failed to create link');}};</script></body></html>`;
+
 function verifyLogPassword(candidate) {
   try {
     const candidateHash = scryptSync(candidate, LOG_SALT, 64);
@@ -348,6 +367,14 @@ const app = Fastify({
         }
       }
 
+      if (pathname === '/dev/links' || pathname === '/dev/links/') {
+        if (req.method === 'GET') {
+          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+          res.end(devLinksHtml);
+          return;
+        }
+      }
+
       if (pathname === '/dev/api/login') {
         if (req.method === 'POST') {
           let body = '';
@@ -428,6 +455,164 @@ const app = Fastify({
               await saveDevState();
               res.writeHead(200, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ ok: true, updates: devState.updates }));
+            } catch {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Bad Request' }));
+            }
+          });
+          return;
+        }
+      }
+
+      if (pathname === '/dev/api/links/list') {
+        if (req.method === 'POST') {
+          let body = '';
+          req.on('data', c => { body += c; if (body.length > 8192) req.destroy(); });
+          req.on('end', () => {
+            try {
+              const { password } = JSON.parse(body || '{}');
+              if (typeof password !== 'string' || !verifyLogPassword(password)) {
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Unauthorized' }));
+                return;
+              }
+              const links = devState.links.map((l) => ({
+                ...l,
+                status: tunnelProcesses.has(l.id) ? 'running' : l.status || 'stopped',
+              }));
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ links }));
+            } catch {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Bad Request' }));
+            }
+          });
+          return;
+        }
+      }
+
+      if (pathname === '/dev/api/links/stop') {
+        if (req.method === 'POST') {
+          let body = '';
+          req.on('data', c => { body += c; if (body.length > 8192) req.destroy(); });
+          req.on('end', async () => {
+            try {
+              const { password, id } = JSON.parse(body || '{}');
+              if (typeof password !== 'string' || !verifyLogPassword(password)) {
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Unauthorized' }));
+                return;
+              }
+              const proc = tunnelProcesses.get(id);
+              if (proc) {
+                proc.kill();
+                tunnelProcesses.delete(id);
+              }
+              const idx = devState.links.findIndex((l) => l.id === id);
+              if (idx !== -1) devState.links[idx].status = 'stopped';
+              await saveDevState();
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ ok: true }));
+            } catch {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Bad Request' }));
+            }
+          });
+          return;
+        }
+      }
+
+      if (pathname === '/dev/api/links/create') {
+        if (req.method === 'POST') {
+          let body = '';
+          req.on('data', c => { body += c; if (body.length > 16384) req.destroy(); });
+          req.on('end', async () => {
+            try {
+              const { password, target, desiredSubdomain } = JSON.parse(body || '{}');
+              if (typeof password !== 'string' || !verifyLogPassword(password)) {
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Unauthorized' }));
+                return;
+              }
+
+              const targetUrl = new URL(String(target || '').trim() || 'https://torov1.up.railway.app');
+              if (!/^https?:$/i.test(targetUrl.protocol)) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Invalid target URL protocol' }));
+                return;
+              }
+
+              const linkId = randomUUID();
+              const cmd = process.env.CLOUDFLARED_PATH || (process.platform === 'win32' ? '.\\cloudflared.exe' : 'cloudflared');
+              const args = [
+                'tunnel',
+                '--url', targetUrl.toString(),
+                '--http-host-header', targetUrl.host,
+                '--no-autoupdate',
+              ];
+
+              const child = spawn(cmd, args, { cwd: process.cwd(), stdio: ['ignore', 'pipe', 'pipe'] });
+              let output = '';
+              let finished = false;
+
+              const done = async (payload, code = 200) => {
+                if (finished) return;
+                finished = true;
+                clearTimeout(timeout);
+                res.writeHead(code, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify(payload));
+              };
+
+              const parseUrl = () => {
+                const m = output.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/i);
+                return m ? m[0] : null;
+              };
+
+              child.stdout.on('data', (d) => {
+                output += String(d);
+                const url = parseUrl();
+                if (!url || tunnelProcesses.has(linkId)) return;
+
+                tunnelProcesses.set(linkId, child);
+                const rec = {
+                  id: linkId,
+                  url,
+                  requestedSubdomain: String(desiredSubdomain || '').slice(0, 50),
+                  target: targetUrl.toString(),
+                  createdAt: new Date().toISOString(),
+                  status: 'running',
+                };
+                devState.links.unshift(rec);
+                if (devState.links.length > 30) devState.links.length = 30;
+                saveDevState();
+
+                done({
+                  ok: true,
+                  link: rec,
+                  note:
+                    'Cloudflare quick tunnels do not support custom subdomain prefixes under trycloudflare.com. For custom names, use your own Cloudflare domain with named tunnels.',
+                });
+              });
+
+              child.stderr.on('data', (d) => {
+                output += String(d);
+              });
+
+              child.on('exit', async () => {
+                tunnelProcesses.delete(linkId);
+                const idx = devState.links.findIndex((l) => l.id === linkId);
+                if (idx !== -1) {
+                  devState.links[idx].status = 'stopped';
+                  await saveDevState();
+                }
+              });
+
+              const timeout = setTimeout(async () => {
+                if (!finished) {
+                  child.kill();
+                  await done({ error: 'Failed to create link. Ensure cloudflared is installed and available.' }, 500);
+                }
+              }, 25000);
             } catch {
               res.writeHead(400, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ error: 'Bad Request' }));
