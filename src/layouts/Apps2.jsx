@@ -1,5 +1,5 @@
-import { useState, useMemo, useEffect, useCallback, memo, useRef, lazy, Suspense } from 'react';
-import { Search, LayoutGrid, ChevronLeft, ChevronRight, Play } from 'lucide-react';
+import { useState, useMemo, useEffect, useCallback, memo, lazy, Suspense } from 'react';
+import { Search, LayoutGrid, Play } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useOptions } from '/src/utils/optionsContext';
 import styles from '../styles/apps.module.css';
@@ -49,68 +49,6 @@ const AppCard = memo(({ app, onClick, fallbackMap, onImgError, itemTheme, itemSt
   );
 });
 
-const CategoryRow = memo(({ category, games, onClick, onViewMore, fallback, onImgError, theme, styles }) => {
-  const ref = useRef(null);
-
-  const scroll = (dir) => {
-    if (ref.current) {
-      ref.current.scrollBy({
-        left: dir === 'left' ? -400 : 400,
-        behavior: 'smooth'
-      });
-    }
-  };
-
-  return (
-    <div className="mb-3 max-w-7xl mx-auto px-9">
-      <div className="flex items-center justify-between mb-1">
-        <div className="flex items-center gap-3">
-          <h2 className="text-2xl font-bold">{category}</h2>
-          <button
-            onClick={() => onViewMore(category)}
-            className={clsx('text-xs px-3 py-1 rounded-full', theme.glassButton, theme.glassPill)}
-          >
-            View more
-          </button>
-        </div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => scroll('left')}
-            className={clsx('p-2 rounded-full', theme.glassIconButton)}
-            aria-label="Scroll left"
-          >
-            <ChevronLeft size={20} />
-          </button>
-          <button
-            onClick={() => scroll('right')}
-            className={clsx('p-2 rounded-full', theme.glassIconButton)}
-            aria-label="Scroll right"
-          >
-            <ChevronRight size={20} />
-          </button>
-        </div>
-      </div>
-      <div
-        ref={ref}
-        className="flex gap-1 overflow-x-auto pb-2 -ml-3 scrollbar-hide"
-        style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
-      >
-        {games.map((game) => (
-          <AppCard
-            key={game.appName}
-            app={game}
-            onClick={onClick}
-            fallbackMap={fallback}
-            onImgError={onImgError}
-            itemTheme={theme}
-            itemStyles={styles}
-          />
-        ))}
-      </div>
-    </div>
-  );
-});
-
 const Games = memo(() => {
   const nav = useNavigate();
   const { options } = useOptions();
@@ -126,10 +64,9 @@ const Games = memo(() => {
 
   const [q, setQ] = useState('');
   const [page, setPage] = useState(1);
-  const [category, setCategory] = useState(null);
   const [fallback, setFallback] = useState({});
   const [dlCount, setDlCount] = useState(0);
-  const [showDl, setShowDl] = useState(false);
+  const [filter, setFilter] = useState('all');
   const [dlGames, setDlGames] = useState([]);
 
   useEffect(() => {
@@ -154,18 +91,16 @@ const Games = memo(() => {
 
   const filtered = useMemo(() => {
     let toFilter = all;
-    
-    if (showDl) {
+
+    if (filter === 'downloaded') {
       const dlNames = new Set(dlGames.map(g => g.name));
       toFilter = all.filter(game => {
         const firstUrl = Array.isArray(game.url) ? game.url[0] : game.url;
         const gmName = firstUrl?.split('/').pop()?.replace('.zip', '');
         return gmName && dlNames.has(gmName);
       });
-    } else if (category) {
-      toFilter = data[category] || [];
     }
-    
+
     if (q) {
       const fq = q.toLowerCase().trim().replace(/\s/g, '');
       toFilter = toFilter.filter((game) => {
@@ -177,7 +112,7 @@ const Games = memo(() => {
     const total = Math.ceil(toFilter.length / perPage);
     const paged = toFilter.slice((page - 1) * perPage, page * perPage);
     return { filteredGames: toFilter, paged, totalPages: total };
-  }, [all, data, category, showDl, dlGames, q, page, perPage]);
+  }, [all, filter, dlGames, q, page, perPage]);
 
   useEffect(() => {
     if (page > filtered.totalPages && filtered.totalPages > 0) setPage(1);
@@ -193,27 +128,6 @@ const Games = memo(() => {
 
   const handleSearch = useCallback((e) => {
     setQ(e.target.value);
-    setCategory(null);
-    setPage(1);
-  }, []);
-
-  const handleViewMore = useCallback((cat) => {
-    setCategory(cat);
-    setQ('');
-    setPage(1);
-  }, []);
-
-  const handleBack = useCallback(() => {
-    setCategory(null);
-    setShowDl(false);
-    setQ('');
-    setPage(1);
-  }, []);
-
-  const handleViewDl = useCallback(() => {
-    setShowDl(true);
-    setCategory(null);
-    setQ('');
     setPage(1);
   }, []);
 
@@ -231,15 +145,7 @@ const Games = memo(() => {
 
   return (
     <div className={`${styles.appContainer} w-full mx-auto`}>
-      <div className="w-full px-4 min-h-[22vh] flex items-center justify-center relative">
-        {(category || showDl) && (
-          <button
-            onClick={handleBack}
-            className={clsx('absolute left-10 text-sm whitespace-nowrap px-3 py-1.5 rounded-full', theme.glassButton, theme.glassPill)}
-          >
-            ← Back to all
-          </button>
-        )}
+      <div className="w-full px-4 min-h-[22vh] flex flex-col items-center justify-center gap-3">
         <div
           className={clsx(
             'relative flex items-center gap-3 px-5 w-[min(92vw,700px)] h-14',
@@ -255,82 +161,82 @@ const Games = memo(() => {
             className="flex-1 bg-transparent outline-none text-sm"
           />
         </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              setFilter('all');
+              setPage(1);
+            }}
+            className={clsx(
+              'text-xs whitespace-nowrap px-3 py-1.5 rounded-full',
+              theme.glassButton,
+              theme.glassPill,
+              filter === 'all' ? 'border-white/40 bg-white/12' : 'opacity-90',
+            )}
+          >
+            All Games ({all.length})
+          </button>
+          <button
+            onClick={() => {
+              setFilter('downloaded');
+              setPage(1);
+            }}
+            className={clsx(
+              'text-xs whitespace-nowrap px-3 py-1.5 rounded-full',
+              theme.glassButton,
+              theme.glassPill,
+              filter === 'downloaded' ? 'border-white/40 bg-white/12' : 'opacity-90',
+            )}
+          >
+            Downloaded ({dlCount})
+          </button>
+        </div>
       </div>
 
-      {showDl && (
+      {filter === 'downloaded' && (
         <div className="text-center text-xs opacity-60 pb-2">
           Local games not played for 3+ days are automatically removed
         </div>
       )}
 
-      {!category && !showDl && dlCount > 0 && (
-        <div className="w-full flex justify-center pb-1">
-          <button
-            onClick={handleViewDl}
-            className={clsx('text-xs whitespace-nowrap px-3 py-1.5 rounded-full', theme.glassButton, theme.glassPill)}
-          >
-            View Downloaded Games ({dlCount})
-          </button>
-        </div>
-      )}
+      <div className="flex flex-wrap justify-center pb-2">
+        {filtered.paged.map((game) => (
+          <AppCard
+            key={game.appName}
+            app={game}
+            onClick={navApp}
+            fallbackMap={fallback}
+            onImgError={handleImgError}
+            itemTheme={{ ...theme, current: options.theme || 'default' }}
+            itemStyles={styles}
+          />
+        ))}
+      </div>
 
-      {q || category || showDl ? (
-        <>
-          <div className="flex flex-wrap justify-center pb-2">
-            {filtered.paged.map((game) => (
-              <AppCard
-                key={game.appName}
-                app={game}
-                onClick={navApp}
-                fallbackMap={fallback}
-                onImgError={handleImgError}
-                itemTheme={{ ...theme, current: options.theme || 'default' }}
-                itemStyles={styles}
-              />
-            ))}
-          </div>
-
-          {filtered.filteredGames.length > perPage && (
-            <div className="flex flex-col items-center pb-7">
-              <Suspense>
-                <Pagination
-                  count={filtered.totalPages}
-                  page={page}
-                  onChange={(_, v) => setPage(v)}
-                  shape="rounded"
-                  variant="outlined"
-                  sx={{
-                    '& .MuiPaginationItem-root': {
-                      color: options.paginationTextColor || '#9baec8',
-                      borderColor: options.paginationBorderColor || '#ffffff1c',
-                      backgroundColor: options.paginationBgColor || '#141d2b',
-                      fontFamily: 'SFProText',
-                    },
-                    '& .Mui-selected': {
-                      backgroundColor: `${options.paginationSelectedColor || '#75b3e8'} !important`,
-                      color: '#fff !important',
-                    },
-                  }}
-                />
-              </Suspense>
-            </div>
-          )}
-        </>
-      ) : (
-        <div className="space-y-2">
-          {Object.entries(data).map(([cat, games]) => (
-            <CategoryRow
-              key={cat}
-              category={cat}
-              games={games}
-              onClick={navApp}
-              onViewMore={handleViewMore}
-              fallback={fallback}
-              onImgError={handleImgError}
-              theme={{ ...theme, current: options.theme || 'default' }}
-              styles={styles}
+      {filtered.filteredGames.length > perPage && (
+        <div className="flex flex-col items-center pb-7">
+          <Suspense>
+            <Pagination
+              count={filtered.totalPages}
+              page={page}
+              onChange={(_, v) => setPage(v)}
+              shape="rounded"
+              variant="outlined"
+              sx={{
+                '& .MuiPaginationItem-root': {
+                  color: options.paginationTextColor || '#9baec8',
+                  borderColor: options.paginationBorderColor || '#ffffff1c',
+                  backgroundColor: options.paginationBgColor || '#141d2b',
+                  fontFamily: 'SFProText',
+                },
+                '& .Mui-selected': {
+                  backgroundColor: `${options.paginationSelectedColor || '#75b3e8'} !important`,
+                  color: '#fff !important',
+                },
+              }}
             />
-          ))}
+          </Suspense>
         </div>
       )}
     </div>
