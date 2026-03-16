@@ -90,12 +90,44 @@ server.on("upgrade", (req, sock, head) =>
 );
 
 const app = Fastify({
-  serverFactory: h => (
-    server.on("request", (req, res) =>
-      bare?.shouldRoute(req) ? bare.routeRequest(req, res) : h(req, res)
-    ),
-    server
-  ),
+  serverFactory: h => {
+    server.on("request", (req, res) => {
+      // Admin endpoint: bypass Fastify/static entirely so React Router never intercepts it
+      if (req.url === '/logs/ips') {
+        if (req.method === 'GET') {
+          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+          res.end(logsHtml);
+          return;
+        }
+        if (req.method === 'POST') {
+          let body = '';
+          req.on('data', c => { body += c; if (body.length > 8192) req.destroy(); });
+          req.on('end', () => {
+            try {
+              const { password } = JSON.parse(body);
+              if (typeof password !== 'string' || !verifyLogPassword(password)) {
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Unauthorized' }));
+                return;
+              }
+              const rows = [];
+              for (const [ip, d] of ipLog)
+                rows.push({ ip, city: d.city, state: d.state, country: d.country, vpn: d.vpn, isp: d.isp, device: d.device, visits: [...d.visits].reverse() });
+              rows.reverse();
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify(rows));
+            } catch {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Bad Request' }));
+            }
+          });
+          return;
+        }
+      }
+      bare?.shouldRoute(req) ? bare.routeRequest(req, res) : h(req, res);
+    });
+    return server;
+  },
   logger: false,
   keepAliveTimeout: 30000,
   connectionTimeout: 60000,
@@ -317,21 +349,7 @@ function toggle(btn, id) {
 </body>
 </html>`;
 
-app.get('/logs/ips', async (req, reply) => {
-  reply.type('text/html').send(logsHtml);
-});
 
-app.post('/logs/ips', async (req, reply) => {
-  const { password } = req.body ?? {};
-  if (typeof password !== 'string' || !verifyLogPassword(password)) {
-    return reply.code(401).send({ error: 'Unauthorized' });
-  }
-  const rows = [];
-  for (const [ip, d] of ipLog)
-    rows.push({ ip, city: d.city, state: d.state, country: d.country, vpn: d.vpn, isp: d.isp, device: d.device, visits: [...d.visits].reverse() });
-  rows.reverse();
-  return reply.send(rows);
-});
 app.get("/return", async (req, reply) =>
   req.query?.q
     ? fetch(`https://duckduckgo.com/ac/?q=${encodeURIComponent(req.query.q)}`)
