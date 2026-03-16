@@ -170,7 +170,6 @@ async function createBunnyCDNPullZone(apiKey, zoneName, originUrl) {
   const payload = JSON.stringify({
     Name: zoneName,
     OriginUrl: originUrl,
-    StorageZoneId: 0,
     Type: 0,
   });
   const resp = await fetch('https://api.bunny.net/pullzone', {
@@ -183,6 +182,14 @@ async function createBunnyCDNPullZone(apiKey, zoneName, originUrl) {
   });
   if (!resp.ok) {
     const text = await resp.text().catch(() => '');
+    if (resp.status === 401) {
+      throw new Error(
+        'BunnyCDN API key is invalid or lacks permission. Go to BunnyCDN Dashboard → Account → API and copy the Account API Key (not a storage/CDN key).'
+      );
+    }
+    if (resp.status === 400) {
+      throw new Error(`BunnyCDN rejected the request (400). Check the zone name — it must be unique and contain only letters, numbers, and hyphens. Details: ${text.slice(0, 200)}`);
+    }
     throw new Error(`BunnyCDN API error ${resp.status}: ${text.slice(0, 200)}`);
   }
   const data = await resp.json();
