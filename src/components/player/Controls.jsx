@@ -10,8 +10,9 @@ export const Controls = ({ icon: Icon, fn, size = 18, className, children }) => 
     <div
       onClick={fn}
       className={clsx(
-        'h-7 flex justify-center items-center rounded-md cursor-pointer hover:opacity-60',
+        'h-7 flex justify-center items-center rounded-md cursor-pointer',
         children ? 'px-2 gap-2 min-w-7' : 'w-7',
+        theming.glassIconButton,
         theming.appItemColor,
         theming[`theme-${theme || 'default'}`],
         className,

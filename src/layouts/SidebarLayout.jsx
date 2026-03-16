@@ -2,6 +2,7 @@ import { NavLink } from 'react-router-dom';
 import { House, Gamepad2, Settings, BellRing } from 'lucide-react';
 import { useOptions } from '/src/utils/optionsContext';
 import clsx from 'clsx';
+import theme from '../styles/theming.module.css';
 
 const sidebarItems = [
   { to: '/', label: 'Home', icon: House, exact: true },
@@ -34,9 +35,10 @@ const SidebarLayout = ({ children }) => {
                 className={({ isActive }) =>
                   clsx(
                     'group relative flex h-11 w-11 items-center justify-center rounded-xl transition-all duration-200',
+                    theme.glassIconButton,
                     isActive
-                      ? 'bg-white/18 scale-105 shadow-[0_0_16px_rgba(255,255,255,0.08)]'
-                      : 'hover:bg-white/10 hover:scale-105',
+                      ? 'scale-105 shadow-[0_0_16px_rgba(255,255,255,0.08)]'
+                      : 'hover:scale-105',
                   )
                 }
               >

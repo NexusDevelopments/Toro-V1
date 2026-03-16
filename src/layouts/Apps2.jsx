@@ -41,7 +41,7 @@ const AppCard = memo(({ app, onClick, fallbackMap, onImgError, itemTheme, itemSt
         )}
       </div>
       <p className="text-m font-semibold mb-3 flex-grow line-clamp-2">{app.appName.split('').join('\u200B')}</p>
-      <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#ffffff15] hover:bg-[#ffffff25] transition-colors text-sm font-medium mt-auto self-start">
+      <button className={clsx('flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium mt-auto self-start', itemTheme.glassButton)}>
         <Play size={16} fill="currentColor" />
         Play
       </button>
@@ -68,7 +68,7 @@ const CategoryRow = memo(({ category, games, onClick, onViewMore, fallback, onIm
           <h2 className="text-2xl font-bold">{category}</h2>
           <button
             onClick={() => onViewMore(category)}
-            className="text-xs px-3 py-1 rounded-full bg-[#ffffff10] hover:bg-[#ffffff18] transition-colors"
+            className={clsx('text-xs px-3 py-1 rounded-full', theme.glassButton, theme.glassPill)}
           >
             View more
           </button>
@@ -76,14 +76,14 @@ const CategoryRow = memo(({ category, games, onClick, onViewMore, fallback, onIm
         <div className="flex gap-2">
           <button
             onClick={() => scroll('left')}
-            className="p-2 rounded-full bg-[#ffffff10] hover:bg-[#ffffff18] transition-colors"
+            className={clsx('p-2 rounded-full', theme.glassIconButton)}
             aria-label="Scroll left"
           >
             <ChevronLeft size={20} />
           </button>
           <button
             onClick={() => scroll('right')}
-            className="p-2 rounded-full bg-[#ffffff10] hover:bg-[#ffffff18] transition-colors"
+            className={clsx('p-2 rounded-full', theme.glassIconButton)}
             aria-label="Scroll right"
           >
             <ChevronRight size={20} />
@@ -235,7 +235,7 @@ const Games = memo(() => {
         {(category || showDl) && (
           <button
             onClick={handleBack}
-            className="absolute cursor-pointer left-10 text-sm hover:opacity-80 transition-opacity whitespace-nowrap"
+            className={clsx('absolute left-10 text-sm whitespace-nowrap px-3 py-1.5 rounded-full', theme.glassButton, theme.glassPill)}
           >
             ← Back to all
           </button>
@@ -267,7 +267,7 @@ const Games = memo(() => {
         <div className="w-full flex justify-center pb-1">
           <button
             onClick={handleViewDl}
-            className="cursor-pointer text-xs hover:opacity-80 transition-opacity whitespace-nowrap"
+            className={clsx('text-xs whitespace-nowrap px-3 py-1.5 rounded-full', theme.glassButton, theme.glassPill)}
           >
             View Downloaded Games ({dlCount})
           </button>

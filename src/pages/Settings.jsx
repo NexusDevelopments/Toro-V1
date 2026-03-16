@@ -1,6 +1,8 @@
 import { useState, useCallback } from 'react';
 import { useOptions } from '/src/utils/optionsContext';
 import SidebarLayout from '../layouts/SidebarLayout';
+import clsx from 'clsx';
+import theme from '../styles/theming.module.css';
 
 const Settings = () => {
   const { options, updateOption } = useOptions();
@@ -82,21 +84,21 @@ const Settings = () => {
           <div className="mt-3 flex gap-2">
             <button
               onClick={() => setSearchEngine('duckduckgo')}
-              className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${
+              className={clsx(`rounded-lg border px-3 py-1.5 text-sm ${
                 selectedEngine === 'duckduckgo'
                   ? 'border-white/40 bg-white/12'
-                  : 'border-white/20 hover:bg-white/10'
-              }`}
+                  : 'border-white/20'
+              }`, theme.glassButton)}
             >
               DuckDuckGo (Default)
             </button>
             <button
               onClick={() => setSearchEngine('google')}
-              className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${
+              className={clsx(`rounded-lg border px-3 py-1.5 text-sm ${
                 selectedEngine === 'google'
                   ? 'border-white/40 bg-white/12'
-                  : 'border-white/20 hover:bg-white/10'
-              }`}
+                  : 'border-white/20'
+              }`, theme.glassButton)}
             >
               Google
             </button>
@@ -120,7 +122,7 @@ const Settings = () => {
                 setPanicEnabled(next);
                 savePanic(next, panicKey);
               }}
-              className="rounded-lg border border-white/20 px-3 py-1.5 text-sm hover:bg-white/10 transition-colors"
+              className={clsx('rounded-lg border border-white/20 px-3 py-1.5 text-sm', theme.glassButton)}
             >
               {panicEnabled ? 'On' : 'Off'}
             </button>
