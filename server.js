@@ -43,14 +43,33 @@ const DEV_STATE_DIR = join(__dirname, 'data');
 const DEV_STATE_FILE = join(DEV_STATE_DIR, 'dev-state.json');
 const IP_LOG_FILE = join(DEV_STATE_DIR, 'ip-logs.json');
 const CHAT_STATE_FILE = join(DEV_STATE_DIR, 'chat-state.json');
-const DATABASE_URL = String(
-  process.env.DATABASE_URL ||
-  process.env.POSTGRES_URL ||
-  process.env.POSTGRESQL_URL ||
-  process.env.POSTGRES_PRIVATE_URL ||
-  process.env.PGURL ||
-  ''
-).trim();
+function resolveDatabaseUrl() {
+  const direct = [
+    process.env.DATABASE_URL,
+    process.env.DATABASE_PRIVATE_URL,
+    process.env.DATABASE_PUBLIC_URL,
+    process.env.RAILWAY_DATABASE_URL,
+    process.env.PGURL,
+  ]
+    .map((v) => String(v || '').trim())
+    .find(Boolean);
+
+  if (direct) return direct;
+
+  const host = String(process.env.PGHOST || '').trim();
+  const port = String(process.env.PGPORT || '').trim() || '5432';
+  const user = String(process.env.PGUSER || '').trim();
+  const password = String(process.env.PGPASSWORD || '').trim();
+  const database = String(process.env.PGDATABASE || '').trim();
+
+  if (host && user && password && database) {
+    return `postgresql://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${host}:${port}/${encodeURIComponent(database)}`;
+  }
+
+  return '';
+}
+
+const DATABASE_URL = resolveDatabaseUrl();
 const IS_RAILWAY = Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID);
 let pgStateClient = null;
 let ipLogSaveTimer = null;
