@@ -773,6 +773,74 @@ function recordIp(req) {
   if (e.visits.length > 500) e.visits.shift();
   scheduleIpLogSave();
 }
+
+function normalizeStatusLink(input) {
+  const raw = String(input || '').trim();
+  if (!raw) return null;
+
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      const parsed = new URL(raw);
+      return { label: parsed.host, url: parsed.toString() };
+    } catch {
+      return null;
+    }
+  }
+
+  if (raw.includes('.')) {
+    return { label: raw, url: `https://${raw}` };
+  }
+
+  const safe = raw.toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 60);
+  if (!safe) return null;
+  return { label: `${safe}.workers.dev`, url: `https://${safe}.workers.dev` };
+}
+
+async function checkLinkStatus(input) {
+  const normalized = normalizeStatusLink(input);
+  if (!normalized) {
+    return {
+      input: String(input || ''),
+      label: String(input || ''),
+      url: '',
+      online: false,
+      status: null,
+      error: 'Invalid link',
+    };
+  }
+
+  const options = {
+    redirect: 'follow',
+    signal: AbortSignal.timeout(7000),
+  };
+
+  try {
+    let response = await fetch(normalized.url, { method: 'HEAD', ...options });
+    if (response.status === 405) {
+      response = await fetch(normalized.url, { method: 'GET', ...options });
+    }
+
+    const online = response.status >= 200 && response.status < 500;
+    return {
+      input: String(input || ''),
+      label: normalized.label,
+      url: normalized.url,
+      online,
+      status: response.status,
+      error: online ? '' : `HTTP ${response.status}`,
+    };
+  } catch (err) {
+    return {
+      input: String(input || ''),
+      label: normalized.label,
+      url: normalized.url,
+      online: false,
+      status: null,
+      error: err?.name === 'TimeoutError' ? 'Timeout' : (err?.message || 'Request failed'),
+    };
+  }
+}
+
 const bare = process.env.BARE !== "false" ? createBareServer("/seal/") : null;
 logging.set_level(logging.NONE);
 
@@ -1487,6 +1555,16 @@ app.get("/js/script.js", proxy(() => "https://byod.privatedns.org/js/script.js")
 app.get("/ds", (req, res) => res.redirect("https://discord.gg/ZBef7HnAeg"));
 app.get('/health', async () => ({ ok: true }));
 app.get('/api/updates', async () => devState.updates);
+app.post('/api/more-links/status', async (req) => {
+  const links = Array.isArray(req.body?.links) ? req.body.links : [];
+  const items = links
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+    .slice(0, 40);
+
+  const results = await Promise.all(items.map((item) => checkLinkStatus(item)));
+  return { ok: true, results };
+});
 
 app.get('/api/chat/rooms', async () => {
   pruneChatUsers();
