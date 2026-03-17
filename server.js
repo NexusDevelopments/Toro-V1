@@ -38,6 +38,8 @@ const devState = {
       ts: new Date().toISOString(),
     },
   ],
+  pendingUpdates: [],
+  releaseDate: null,
 };
 const DEV_STATE_DIR = join(__dirname, 'data');
 const DEV_STATE_FILE = join(DEV_STATE_DIR, 'dev-state.json');
@@ -500,6 +502,19 @@ async function loadDevState() {
           ts: typeof u.ts === 'string' ? u.ts : new Date().toISOString(),
         }));
     }
+    if (Array.isArray(parsed.pendingUpdates)) {
+      devState.pendingUpdates = parsed.pendingUpdates
+        .filter((u) => typeof u?.text === 'string' && u.text.trim())
+        .slice(0, 100)
+        .map((u) => ({
+          id: typeof u.id === 'string' ? u.id : randomUUID(),
+          text: u.text.trim(),
+          addedAt: typeof u.addedAt === 'string' ? u.addedAt : new Date().toISOString(),
+        }));
+    }
+    if (typeof parsed.releaseDate === 'string' || parsed.releaseDate === null) {
+      devState.releaseDate = parsed.releaseDate || null;
+    }
   };
 
   const getPgStateClient = async () => {
@@ -573,6 +588,8 @@ async function saveDevState() {
             maintenanceMessage: devState.maintenanceMessage,
             links: devState.links,
             updates: devState.updates,
+            pendingUpdates: devState.pendingUpdates,
+            releaseDate: devState.releaseDate,
           }),
         ]
       );
@@ -592,6 +609,8 @@ async function saveDevState() {
           maintenanceMessage: devState.maintenanceMessage,
           links: devState.links,
           updates: devState.updates,
+          pendingUpdates: devState.pendingUpdates,
+          releaseDate: devState.releaseDate,
         },
         null,
         2,
@@ -610,6 +629,25 @@ if (IS_RAILWAY && !DATABASE_URL) {
 }
 
 await loadDevState();
+
+// Auto-release pending updates when scheduled date is reached.
+setInterval(async () => {
+  if (!devState.releaseDate || !devState.pendingUpdates.length) return;
+  if (Date.now() < new Date(devState.releaseDate).getTime()) return;
+  const count = devState.pendingUpdates.length;
+  devState.pendingUpdates.forEach((u) => {
+    devState.updates.unshift({ id: u.id, text: u.text, ts: u.addedAt });
+  });
+  if (devState.updates.length > 100) devState.updates.length = 100;
+  devState.pendingUpdates = [];
+  devState.releaseDate = null;
+  try {
+    await saveDevState();
+    console.log(`[pushupdates] Auto-released ${count} pending update(s) to live.`);
+  } catch (err) {
+    console.error('[pushupdates] Auto-release save failed:', err?.message || err);
+  }
+}, 30000);
 
 async function loadIpLogs() {
   try {
@@ -778,6 +816,8 @@ const devHtml = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><met
 
 const devLinksHtml = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Dev Links</title><style>*{box-sizing:border-box;margin:0;padding:0}body{background:#090304;color:#f4d4d8;font-family:ui-sans-serif,system-ui,sans-serif;min-height:100vh;padding:24px}.wrap{max-width:960px;margin:0 auto}.card{background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(10px);border-radius:16px;padding:18px;margin-bottom:16px}h1{font-size:2rem;color:#ff7788;margin-bottom:8px}h2{font-size:1.04rem;margin-bottom:10px;color:#ffc7cf}.muted{opacity:.7;font-size:.84rem;line-height:1.45}input{width:100%;padding:10px 12px;border-radius:999px;background:#130709;border:1px solid rgba(255,255,255,.2);color:#fff;outline:none}input[type=number]{-moz-appearance:textfield}input::-webkit-outer-spin-button,input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}button{background:linear-gradient(135deg,rgba(255,255,255,.15),rgba(255,255,255,.06));border:1px solid rgba(255,255,255,.26);color:#ffecef;border-radius:999px;padding:9px 14px;cursor:pointer}button:hover{border-color:rgba(255,255,255,.45)}button:disabled{opacity:.4;cursor:default}.row{display:flex;gap:10px;flex-wrap:wrap}.hidden{display:none}.tabs{display:flex;gap:8px;margin-bottom:16px}.tab{border-radius:999px;padding:9px 20px}.tab.active{border-color:#ff7788;background:rgba(255,119,136,.15)}.link{padding:12px;border:1px solid rgba(255,255,255,.14);border-radius:12px;background:rgba(0,0,0,.26);margin-bottom:8px}.lurl{font-size:.86rem;word-break:break-all}.lmeta{font-size:.78rem;opacity:.6;margin-top:4px}.badge{display:inline-block;border-radius:999px;padding:2px 8px;font-size:.72rem;margin-left:5px}.badge.running{background:rgba(100,255,150,.12);color:#80ffaa}.badge.stopped{background:rgba(255,100,100,.1);color:#ff9090}.badge.prov{background:rgba(255,255,255,.08);color:#ddd}.ideas{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;margin-top:12px}.idea{border-radius:12px;padding:10px 12px;text-align:left}.providers{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-top:10px}.pcard{border:1px solid rgba(255,255,255,.14);border-radius:12px;padding:10px 12px;cursor:pointer;transition:border-color .15s}.pcard.selected{border-color:#ff7788;background:rgba(255,119,136,.08)}.pcard .ptitle{font-size:.92rem;color:#ffc7cf;margin-bottom:3px}.pcard .pdomain{font-size:.78rem;opacity:.6}.pcard .pstatus{font-size:.75rem;margin-top:4px}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px}.stat{border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:12px;text-align:center}.stat-n{font-size:1.6rem;color:#ff7788;font-weight:bold}.stat-l{font-size:.75rem;opacity:.6;margin-top:2px}.notice{margin-top:10px;padding:10px 12px;border:1px solid rgba(255,184,100,.3);border-radius:12px;background:rgba(255,184,100,.08);font-size:.82rem;color:#ffd580;line-height:1.5}.progress{margin-top:12px;padding:10px 12px;border:1px solid rgba(255,255,255,.1);border-radius:12px;background:rgba(0,0,0,.3);font-size:.82rem;display:grid;gap:4px}.pi{padding:5px 0;border-bottom:1px solid rgba(255,255,255,.06);display:flex;gap:8px;align-items:center;flex-wrap:wrap}.pi:last-child{border-bottom:none}</style></head><body><div class="wrap"><h1>Dev Links</h1><p class="muted">Create and manage CDN/tunnel links using your preferred provider.</p><div id="auth" class="card"><h2>Authenticate</h2><input id="pw" type="password" placeholder="Admin password"/><div style="height:10px"></div><button id="login">Enter</button><p id="err" style="display:none;color:#ffb8c0;font-size:.84rem;margin-top:8px"></p></div><div id="panel" class="hidden"><div class="tabs"><button class="tab active" id="tab-create" onclick="showTab('create')">Create</button><button class="tab" id="tab-links" onclick="showTab('links')">Links</button></div><div id="view-create"><div class="card"><h2>Target URL</h2><div class="row"><input id="target" value="https://torov2.up.railway.app"/></div><div style="height:10px"></div><h2>Provider</h2><div id="providers" class="providers"></div></div><div class="card"><h2>Single Link</h2><div class="row"><input id="term" placeholder="Theme: education, gaming, health\u2026"/></div><div style="height:8px"></div><div class="row"><button id="generate">Generate Names</button></div><div id="ideas" class="ideas"></div><div style="height:10px"></div><div class="row"><input id="sub" placeholder="Site / zone name"/></div><p class="muted" style="margin-top:6px">BunnyCDN: zone name becomes name.b-cdn.net. Cloudflare: URL is randomly assigned.</p><div style="height:10px"></div><div class="row"><button id="create">Create Single Link</button></div><div id="create-note" style="display:none" class="notice"></div></div><div class="card"><h2>Bulk Create</h2><p class="muted" style="margin-bottom:10px">Enter a theme and how many links to auto-generate. Names are created from the theme. BunnyCDN only.</p><div class="row"><input id="bulk-term" placeholder="Theme: education, gaming, tech\u2026" style="flex:1"/><input id="bulk-count" type="number" min="1" max="20" value="3" style="width:90px;flex:none"/></div><div style="height:10px"></div><div class="row"><button id="bulk-create">Bulk Create Links</button></div><div id="bulk-progress" style="display:none" class="progress"></div></div></div><div id="view-links" class="hidden"><div class="stats"><div class="stat"><div class="stat-n" id="stat-total">0</div><div class="stat-l">Total</div></div><div class="stat"><div class="stat-n" id="stat-running">0</div><div class="stat-l">Running</div></div><div class="stat"><div class="stat-n" id="stat-stopped">0</div><div class="stat-l">Stopped</div></div></div><div class="card"><div style="display:flex;gap:8px;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap"><h2 style="margin-bottom:0">All Links</h2><div style="display:flex;gap:8px"><button id="refresh-links">\u21bb Refresh</button><button id="stop-all" style="border-color:rgba(255,100,100,.4);color:#ffb8b8">Stop All</button></div></div><div id="links-list"></div></div></div></div></div><script>let PASS='';let providers={};let selectedProvider='cloudflared';let allLinks=[];function esc(s){return String(s||'').replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]||m));}async function post(url,data){const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const j=await r.json().catch(()=>({}));if(!r.ok) throw new Error(j.error||('Request failed '+r.status));return j;}function setErr(t){const e=document.getElementById('err');e.style.display=t?'block':'none';e.textContent=t||'';}function showTab(tab){document.getElementById('view-create').classList.toggle('hidden',tab!=='create');document.getElementById('view-links').classList.toggle('hidden',tab!=='links');document.getElementById('tab-create').classList.toggle('active',tab==='create');document.getElementById('tab-links').classList.toggle('active',tab==='links');if(tab==='links')refreshLinks();}const PROVIDER_META={cloudflared:{title:'Cloudflare Tunnel',domain:'*.trycloudflare.com'},bunnycdn:{title:'BunnyCDN Pull Zone',domain:'*.b-cdn.net'},cfworker:{title:'Cloudflare Workers',domain:'*.workers.dev'}};function paintProviders(){const box=document.getElementById('providers');box.innerHTML='';Object.entries(PROVIDER_META).forEach(([key,meta])=>{const info=providers[key]||{available:false,reason:''};const card=document.createElement('div');card.className='pcard'+(key===selectedProvider?' selected':'');card.innerHTML='<div class="ptitle">'+esc(meta.title)+'</div><div class="pdomain">'+esc(meta.domain)+'</div><div class="pstatus" style="color:'+(info.available?'#a0ffb8':'#ffb8c0')+'">'+esc(info.available?'Available':info.reason||'Unavailable')+'</div>';card.onclick=()=>{selectedProvider=key;paintProviders();};box.appendChild(card);});}function paintIdeas(items){const box=document.getElementById('ideas');box.innerHTML='';(items||[]).forEach(item=>{const button=document.createElement('button');button.className='idea';button.type='button';button.textContent=item.label;button.onclick=()=>{document.getElementById('sub').value=item.label;};box.appendChild(button);});if(!(items||[]).length)box.innerHTML='<p class="muted">No suggestions yet.</p>';}async function generateIdeas(){try{const term=document.getElementById('term').value.trim();if(!term){paintIdeas([]);return;}const data=await post('/dev/api/links/suggest-names',{password:PASS,term});paintIdeas(data.suggestions||[]);}catch(e){alert(e.message||'Failed');}}function paintLinksList(links){allLinks=links||[];const running=allLinks.filter(l=>l.status==='running').length;document.getElementById('stat-total').textContent=allLinks.length;document.getElementById('stat-running').textContent=running;document.getElementById('stat-stopped').textContent=allLinks.length-running;const box=document.getElementById('links-list');box.innerHTML='';if(!allLinks.length){box.innerHTML='<p class="muted">No links yet.</p>';return;}allLinks.forEach(l=>{const pm=PROVIDER_META[l.provider]||{title:l.provider||'cloudflared'};const sc=l.status==='running'?'running':'stopped';const d=document.createElement('div');d.className='link';d.innerHTML='<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap"><div style="flex:1;min-width:0"><div class="lurl"><a href="'+esc(l.url)+'" target="_blank" rel="noreferrer">'+esc(l.url)+'</a><span class="badge prov">'+esc(pm.title)+'</span><span class="badge '+sc+'">'+esc(l.status||'unknown')+'</span></div>'+(l.requestedSubdomain?'<div class="lmeta">Name: '+esc(l.requestedSubdomain)+'</div>':'')+'<div class="lmeta">Created: '+new Date(l.createdAt).toLocaleString()+' &nbsp;\u2022 Target: '+esc(l.target||'')+'</div></div><button data-id="'+esc(l.id)+'">Stop</button></div>';d.querySelector('button').onclick=async()=>{try{await post('/dev/api/links/stop',{password:PASS,id:l.id});await refreshLinks();}catch(e){alert(e.message||'Failed');}};box.appendChild(d);});}async function refreshLinks(){try{const data=await post('/dev/api/links/list',{password:PASS});providers=data.providers||{};paintProviders();paintLinksList(data.links||[]);}catch(e){console.error(e);}}document.getElementById('login').onclick=async()=>{setErr('');try{PASS=document.getElementById('pw').value||'';await post('/dev/api/login',{password:PASS});document.getElementById('auth').classList.add('hidden');document.getElementById('panel').classList.remove('hidden');await refreshLinks();}catch(e){setErr(e.message||'Auth failed');}};document.getElementById('pw').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('login').click();});document.getElementById('generate').onclick=generateIdeas;document.getElementById('term').addEventListener('keydown',e=>{if(e.key==='Enter')generateIdeas();});document.getElementById('create').onclick=async()=>{const nb=document.getElementById('create-note');nb.style.display='none';nb.textContent='';try{const target=document.getElementById('target').value.trim();const desiredSubdomain=document.getElementById('sub').value.trim();const result=await post('/dev/api/links/create',{password:PASS,target,desiredSubdomain,provider:selectedProvider});if(result.note){nb.textContent=result.note;nb.style.display='block';}await refreshLinks();}catch(e){alert(e.message||'Failed to create link');}};document.getElementById('bulk-create').onclick=async()=>{const term=document.getElementById('bulk-term').value.trim();const count=Math.min(20,Math.max(1,parseInt(document.getElementById('bulk-count').value)||3));const target=document.getElementById('target').value.trim();if(!term){alert('Enter a theme term first.');return;}const btn=document.getElementById('bulk-create');const pb=document.getElementById('bulk-progress');btn.disabled=true;pb.style.display='grid';pb.innerHTML='<div style="opacity:.6;font-size:.8rem">\u23f3 Creating '+count+' links themed \u201c'+esc(term)+'\u201d\u2026</div>';try{const result=await post('/dev/api/links/bulk-create',{password:PASS,term,count,target,provider:selectedProvider});pb.innerHTML='';(result.results||[]).forEach(r=>{const row=document.createElement('div');row.className='pi';if(r.ok){row.innerHTML='<span style="color:#80ffaa">\u2713</span><b>'+esc(r.name)+'</b><a href="'+esc(r.url)+'" target="_blank" rel="noreferrer" style="opacity:.55;font-size:.78rem;word-break:break-all">'+esc(r.url)+'</a>';}else{row.innerHTML='<span style="color:#ff9090">\u2717</span><b>'+esc(r.name)+'</b><span style="opacity:.55;font-size:.78rem;color:#ffb8c0">'+esc(r.error)+'</span>';}pb.appendChild(row);});if(result.note){const n=document.createElement('div');n.className='notice';n.style.margin='10px 0 0';n.textContent=result.note;pb.appendChild(n);}await refreshLinks();}catch(e){pb.innerHTML='<div style="color:#ff9090">'+esc(e.message||'Bulk create failed')+'</div>';}btn.disabled=false;};document.getElementById('refresh-links').onclick=refreshLinks;document.getElementById('stop-all').onclick=async()=>{const running=allLinks.filter(l=>l.status==='running');if(!running.length){alert('No running links to stop.');return;}if(!confirm('Stop and delete all '+running.length+' running link'+(running.length===1?'':'s')+'?'))return;for(const l of running){try{await post('/dev/api/links/stop',{password:PASS,id:l.id});}catch{}}await refreshLinks();};</script></body></html>`;
 
+const devPushUpdatesHtml = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Push Updates</title><style>*{box-sizing:border-box;margin:0;padding:0}body{background:#090304;color:#f4d4d8;font-family:ui-sans-serif,system-ui,sans-serif;min-height:100vh;padding:24px}.wrap{max-width:900px;margin:0 auto}.card{background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(10px);border-radius:16px;padding:18px;margin-bottom:16px}h1{font-size:2rem;color:#ff7788;margin-bottom:14px}h1 small{font-size:.95rem;color:#ffc7cf;margin-left:10px;opacity:.7}h2{font-size:1.05rem;margin-bottom:12px;color:#ffc7cf}input,textarea{width:100%;background:#130709;border:1px solid rgba(255,255,255,.2);border-radius:12px;color:#fff;padding:11px 12px;outline:none}input[type=datetime-local]{color-scheme:dark}textarea{min-height:80px;resize:vertical}button{background:linear-gradient(135deg,rgba(255,255,255,.15),rgba(255,255,255,.06));border:1px solid rgba(255,255,255,.26);color:#ffecef;border-radius:999px;padding:9px 14px;cursor:pointer}button:hover{border-color:rgba(255,255,255,.45)}.danger{border-color:rgba(255,80,80,.4)!important;color:#ffb8b8!important}.primary{border-color:rgba(255,119,136,.5)!important;color:#ff9aaa!important;background:linear-gradient(135deg,rgba(255,119,136,.2),rgba(255,119,136,.08))!important}.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.muted{opacity:.65;font-size:.85rem;line-height:1.5}.hidden{display:none}.pi{border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:12px 14px;background:rgba(0,0,0,.25);margin-bottom:8px;display:flex;justify-content:space-between;align-items:flex-start;gap:10px}.pi:last-child{margin-bottom:0}.pi-t{font-size:.9rem;line-height:1.5;flex:1}.pi-m{font-size:.76rem;opacity:.55;margin-top:4px}.li{border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:10px 12px;background:rgba(0,0,0,.18);margin-bottom:6px;font-size:.88rem;opacity:.8}.li:last-child{margin-bottom:0}.bs{display:inline-block;border-radius:8px;padding:6px 12px;font-size:.83rem;margin-bottom:12px}.bs.sched{background:rgba(255,184,100,.12);border:1px solid rgba(255,184,100,.3);color:#ffd580}.bs.none{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.15);color:#aaa}.empty{opacity:.45;font-size:.85rem;padding:8px 0}.count-badge{display:inline-block;background:rgba(255,119,136,.18);border:1px solid rgba(255,119,136,.35);color:#ff9aaa;border-radius:999px;font-size:.75rem;padding:1px 8px;margin-left:8px;vertical-align:middle}</style></head><body><div class="wrap"><h1>Push Updates <small>/dev/pushupdates</small></h1><div id="auth" class="card"><h2>Authenticate</h2><input id="pw" type="password" placeholder="Admin password"/><div style="height:10px"></div><button id="login">Enter</button><p id="err" style="display:none;color:#ffb8c0;font-size:.84rem;margin-top:8px"></p></div><div id="panel" class="hidden"><div class="card"><h2>Add Pending Update</h2><p class="muted" style="margin-bottom:10px">Write what changed in this push. These are staged \u2014 not visible to regular users until the scheduled release date or a manual release.</p><textarea id="newText" placeholder="Describe what changed in this code push..."></textarea><div style="height:10px"></div><button id="addBtn" class="primary">+ Add to Queue</button></div><div class="card"><h2>Pending Queue <span id="pendingCount" class="count-badge">0</span></h2><div id="queueBox"><p class="empty">Nothing pending yet.</p></div></div><div class="card"><h2>Schedule Release</h2><p class="muted" style="margin-bottom:10px">Set the date &amp; time when all pending updates automatically go live on the Updates page users see.</p><div id="schedSt"></div><div class="row" style="margin-bottom:12px"><input type="datetime-local" id="scheduleDt" style="flex:1"/><button id="setDateBtn">Set Schedule</button><button id="clearDateBtn" class="danger">Clear</button></div><div class="row"><button id="releaseNowBtn" class="primary">&#9889; Release Now</button><span class="muted">Immediately publish all pending updates live.</span></div></div><div class="card"><h2>Live Updates</h2><div id="liveBox"><p class="empty">No live updates yet.</p></div></div></div></div><script>let PASS='';function esc(s){return String(s||'').replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]||m));}function setErr(t){const e=document.getElementById('err');e.style.display=t?'block':'none';e.textContent=t||'';}async function post(url,data){const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const j=await r.json().catch(()=>({}));if(!r.ok) throw new Error(j.error||('Request failed '+r.status));return j;}function fmt(s){if(!s)return 'None';try{return new Date(s).toLocaleString();}catch{return s;}}function paintState(st){const pending=st.pendingUpdates||[];document.getElementById('pendingCount').textContent=pending.length;const qb=document.getElementById('queueBox');if(!pending.length){qb.innerHTML='<p class="empty">Nothing pending yet.</p>';}else{qb.innerHTML='';pending.forEach(u=>{const d=document.createElement('div');d.className='pi';d.innerHTML='<div style="flex:1"><div class="pi-t">'+esc(u.text)+'</div><div class="pi-m">Added '+fmt(u.addedAt)+'</div></div><div><button class="danger del-btn" data-id="'+esc(u.id)+'">Delete</button></div>';qb.appendChild(d);});qb.querySelectorAll('.del-btn').forEach(btn=>{btn.onclick=async()=>{try{await post('/dev/api/pushupdates/delete',{password:PASS,id:btn.dataset.id});const r=await post('/dev/api/pushupdates/list',{password:PASS});paintState(r);}catch(e){alert(e.message||'Failed');}};});}const ss=document.getElementById('schedSt');if(st.releaseDate){ss.innerHTML='<div class="bs sched">&#128197; Scheduled for: '+fmt(st.releaseDate)+'</div>';}else{ss.innerHTML='<div class="bs none">No release scheduled</div>';}const live=(st.liveUpdates||[]).slice(0,15);const lb=document.getElementById('liveBox');if(!live.length){lb.innerHTML='<p class="empty">No live updates yet.</p>';}else{lb.innerHTML='';live.forEach(u=>{const d=document.createElement('div');d.className='li';d.textContent=u.text;lb.appendChild(d);});}}document.getElementById('login').onclick=async()=>{setErr('');try{PASS=document.getElementById('pw').value||'';const r=await post('/dev/api/pushupdates/list',{password:PASS});document.getElementById('auth').classList.add('hidden');document.getElementById('panel').classList.remove('hidden');paintState(r);}catch(e){setErr(e.message||'Authentication failed');}};document.getElementById('pw').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('login').click();});document.getElementById('addBtn').onclick=async()=>{const text=document.getElementById('newText').value.trim();if(!text)return;try{const r=await post('/dev/api/pushupdates/add',{password:PASS,text});document.getElementById('newText').value='';paintState(r);}catch(e){alert(e.message||'Failed');}};document.getElementById('setDateBtn').onclick=async()=>{const v=document.getElementById('scheduleDt').value;if(!v){alert('Pick a date & time first.');return;}try{const iso=new Date(v).toISOString();const r=await post('/dev/api/pushupdates/set-date',{password:PASS,releaseDate:iso});paintState(r);}catch(e){alert(e.message||'Failed');}};document.getElementById('clearDateBtn').onclick=async()=>{try{const r=await post('/dev/api/pushupdates/set-date',{password:PASS,releaseDate:null});document.getElementById('scheduleDt').value='';paintState(r);}catch(e){alert(e.message||'Failed');}};document.getElementById('releaseNowBtn').onclick=async()=>{const pending=document.getElementById('pendingCount').textContent;if(pending==='0'){alert('No pending updates to release.');return;}if(!confirm('Release all pending updates live now?'))return;try{const r=await post('/dev/api/pushupdates/release',{password:PASS});alert('Done! '+r.released+' update(s) are now live.');paintState(r);}catch(e){alert(e.message||'Failed');}};setInterval(async()=>{if(!PASS)return;try{const r=await post('/dev/api/pushupdates/list',{password:PASS});paintState(r);}catch{}},30000);</script></body></html>`;
+
 function verifyLogPassword(candidate) {
   try {
     const candidateHash = scryptSync(candidate, LOG_SALT, 64);
@@ -941,6 +981,14 @@ const app = Fastify({
         }
       }
 
+      if (pathname === '/dev/pushupdates' || pathname === '/dev/pushupdates/') {
+        if (req.method === 'GET') {
+          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+          res.end(devPushUpdatesHtml);
+          return;
+        }
+      }
+
       if (pathname === '/dev/api/login') {
         if (req.method === 'POST') {
           let body = '';
@@ -1033,6 +1081,164 @@ const app = Fastify({
 
               res.writeHead(200, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ ok: true, updates: devState.updates, persistedIn: persisted?.backend || 'unknown' }));
+            } catch {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Bad Request' }));
+            }
+          });
+          return;
+        }
+      }
+
+      // ---- Push Updates API ----
+      const pushUpdatesState = () => ({
+        pendingUpdates: devState.pendingUpdates,
+        releaseDate: devState.releaseDate,
+        liveUpdates: devState.updates.slice(0, 15),
+      });
+
+      const releasePendingNow = async () => {
+        const releasing = [...devState.pendingUpdates];
+        devState.pendingUpdates = [];
+        devState.releaseDate = null;
+        releasing.forEach((u) => {
+          devState.updates.unshift({ id: u.id, text: u.text, ts: u.addedAt });
+        });
+        if (devState.updates.length > 100) devState.updates.length = 100;
+        await saveDevState();
+        return releasing.length;
+      };
+
+      if (pathname === '/dev/api/pushupdates/list') {
+        if (req.method === 'POST') {
+          let body = '';
+          req.on('data', c => { body += c; if (body.length > 8192) req.destroy(); });
+          req.on('end', () => {
+            try {
+              const { password } = JSON.parse(body || '{}');
+              if (typeof password !== 'string' || !verifyLogPassword(password)) {
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Unauthorized' }));
+                return;
+              }
+              res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+              res.end(JSON.stringify({ ok: true, ...pushUpdatesState() }));
+            } catch {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Bad Request' }));
+            }
+          });
+          return;
+        }
+      }
+
+      if (pathname === '/dev/api/pushupdates/add') {
+        if (req.method === 'POST') {
+          let body = '';
+          req.on('data', c => { body += c; if (body.length > 32768) req.destroy(); });
+          req.on('end', async () => {
+            try {
+              const { password, text } = JSON.parse(body || '{}');
+              if (typeof password !== 'string' || !verifyLogPassword(password)) {
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Unauthorized' }));
+                return;
+              }
+              if (typeof text !== 'string' || !text.trim()) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Update text required' }));
+                return;
+              }
+              const entry = { id: randomUUID(), text: text.trim(), addedAt: new Date().toISOString() };
+              devState.pendingUpdates.unshift(entry);
+              if (devState.pendingUpdates.length > 100) devState.pendingUpdates.length = 100;
+              await saveDevState();
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ ok: true, ...pushUpdatesState() }));
+            } catch {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Bad Request' }));
+            }
+          });
+          return;
+        }
+      }
+
+      if (pathname === '/dev/api/pushupdates/delete') {
+        if (req.method === 'POST') {
+          let body = '';
+          req.on('data', c => { body += c; if (body.length > 8192) req.destroy(); });
+          req.on('end', async () => {
+            try {
+              const { password, id } = JSON.parse(body || '{}');
+              if (typeof password !== 'string' || !verifyLogPassword(password)) {
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Unauthorized' }));
+                return;
+              }
+              if (typeof id !== 'string') {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'id required' }));
+                return;
+              }
+              devState.pendingUpdates = devState.pendingUpdates.filter((u) => u.id !== id);
+              await saveDevState();
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ ok: true, ...pushUpdatesState() }));
+            } catch {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Bad Request' }));
+            }
+          });
+          return;
+        }
+      }
+
+      if (pathname === '/dev/api/pushupdates/set-date') {
+        if (req.method === 'POST') {
+          let body = '';
+          req.on('data', c => { body += c; if (body.length > 8192) req.destroy(); });
+          req.on('end', async () => {
+            try {
+              const { password, releaseDate } = JSON.parse(body || '{}');
+              if (typeof password !== 'string' || !verifyLogPassword(password)) {
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Unauthorized' }));
+                return;
+              }
+              if (releaseDate !== null && typeof releaseDate !== 'string') {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'releaseDate must be an ISO string or null' }));
+                return;
+              }
+              devState.releaseDate = releaseDate ? new Date(releaseDate).toISOString() : null;
+              await saveDevState();
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ ok: true, ...pushUpdatesState() }));
+            } catch {
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: 'Bad Request' }));
+            }
+          });
+          return;
+        }
+      }
+
+      if (pathname === '/dev/api/pushupdates/release') {
+        if (req.method === 'POST') {
+          let body = '';
+          req.on('data', c => { body += c; if (body.length > 8192) req.destroy(); });
+          req.on('end', async () => {
+            try {
+              const { password } = JSON.parse(body || '{}');
+              if (typeof password !== 'string' || !verifyLogPassword(password)) {
+                res.writeHead(401, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: 'Unauthorized' }));
+                return;
+              }
+              const released = await releasePendingNow();
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ ok: true, released, ...pushUpdatesState() }));
             } catch {
               res.writeHead(400, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ error: 'Bad Request' }));
