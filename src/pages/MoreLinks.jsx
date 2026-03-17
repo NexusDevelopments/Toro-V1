@@ -55,13 +55,27 @@ const MoreLinks = () => {
     refreshStatuses();
   }, []);
 
+  useEffect(() => {
+    const prevBgImage = document.body.style.backgroundImage;
+    const prevBgSize = document.body.style.backgroundSize;
+
+    // Keep the animated network layer, but remove page dot/gradient backgrounds here.
+    document.body.style.backgroundImage = 'none';
+    document.body.style.backgroundSize = 'auto';
+
+    return () => {
+      document.body.style.backgroundImage = prevBgImage;
+      document.body.style.backgroundSize = prevBgSize;
+    };
+  }, []);
+
   return (
     <SidebarLayout>
-      <div className="max-w-4xl px-8 py-10">
-        <div className="flex flex-wrap items-center justify-between gap-4">
+      <div className="mx-auto w-full max-w-5xl px-8 py-10">
+        <div className="mx-auto flex w-full max-w-3xl flex-wrap items-center justify-between gap-4">
           <div>
-            <h2 className="text-3xl font-semibold">More Links</h2>
-            <p className="mt-2 text-sm opacity-75">Your custom links and their live status.</p>
+            <h2 className="text-3xl font-semibold">More links for Toro V2</h2>
+            <p className="mt-2 text-sm opacity-75">Live status for your custom links.</p>
           </div>
           <button
             onClick={refreshStatuses}
@@ -72,7 +86,7 @@ const MoreLinks = () => {
           </button>
         </div>
 
-        <div className="mt-6 space-y-3">
+        <div className="mx-auto mt-6 w-full max-w-3xl space-y-3">
           {items.map((item) => (
             <div key={item.input} className="rounded-xl border border-white/10 bg-black/20 px-4 py-4">
               <div className="flex flex-wrap items-center justify-between gap-3">

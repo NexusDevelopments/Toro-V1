@@ -15,16 +15,34 @@ const QuickLinks = ({ cls, nav = true, navigating }) => {
   const [shiftHeld, setShiftHeld] = useState(false);
   const menuRef = useRef(null);
 
-  const defaultLinks = [
+  const oldDefaultLinks = [
     { link: 'https://google.com', icon: 'https://google.com/favicon.ico', name: 'Google' },
     { link: 'https://cineby.gd', icon: '/assets/img/fyhn.ico', name: 'Movies' },
     { link: 'https://discord.com', icon: '/assets/img/dsci.ico', name: 'Discord' },
     { link: 'https://github.com', icon: '/assets/img/icogh.ico', name: 'GitHub' },
   ];
 
+  const defaultLinks = [
+    { link: 'https://www.youtube.com', icon: 'https://www.youtube.com/favicon.ico', name: 'YouTube' },
+    { link: 'https://www.google.com', icon: 'https://www.google.com/favicon.ico', name: 'Google' },
+    { link: 'https://github.com', icon: 'https://github.com/favicon.ico', name: 'GitHub' },
+    { link: 'https://www.tiktok.com', icon: 'https://www.tiktok.com/favicon.ico', name: 'TikTok' },
+    { link: 'https://www.instagram.com', icon: 'https://www.instagram.com/favicon.ico', name: 'Instagram' },
+  ];
+
+  const isOldDefaultSet = (links) => {
+    if (!Array.isArray(links) || links.length !== oldDefaultLinks.length) return false;
+    return links.every((link, idx) => {
+      const old = oldDefaultLinks[idx];
+      return String(link?.name || '') === old.name && String(link?.link || '') === old.link;
+    });
+  };
+
   const [quickLinks, setQuickLinks] = useState(() => {
     try {
-      return JSON.parse(localStorage.getItem('options'))?.quickLinks || defaultLinks;
+      const storedLinks = JSON.parse(localStorage.getItem('options'))?.quickLinks;
+      if (!Array.isArray(storedLinks) || storedLinks.length === 0) return defaultLinks;
+      return isOldDefaultSet(storedLinks) ? defaultLinks : storedLinks;
     } catch {
       return defaultLinks;
     }
@@ -66,11 +84,12 @@ const QuickLinks = ({ cls, nav = true, navigating }) => {
   }, [quickLinks]);
 
   const linkItem = clsx(
-    'flex flex-col items-center justify-center relative group w-20 h-[5.5rem] rounded-md border-transparent cursor-pointer duration-200 ease-in-out',
+    'flex flex-col items-center justify-center relative group w-[5.1rem] h-[6rem] rounded-2xl border cursor-pointer duration-200 ease-in-out',
+    'bg-white/[0.06] border-white/20 backdrop-blur-xl shadow-[0_10px_28px_rgba(0,0,0,0.38),inset_0_1px_0_rgba(255,255,255,0.2)]',
     options.type === 'dark' ? 'border hover:border-[#ffffff1c]' : 'border-2 hover:border-[#4f4f4f1c]',
-    'hover:backdrop-blur'
+    'hover:scale-[1.03] hover:border-white/40'
   );
-  const linkLogo = 'w-[2.5rem] h-[2.5rem] flex items-center justify-center rounded-full bg-[#6d6d6d73]';
+  const linkLogo = 'w-[2.7rem] h-[2.7rem] flex items-center justify-center rounded-full bg-white/15 border border-white/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.25)]';
 
   return (
     <div className={clsx('flex flex-wrap justify-center gap-4', cls || 'w-full max-w-[40rem] mx-auto mt-[16rem]')}>
