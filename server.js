@@ -43,7 +43,15 @@ const DEV_STATE_DIR = join(__dirname, 'data');
 const DEV_STATE_FILE = join(DEV_STATE_DIR, 'dev-state.json');
 const IP_LOG_FILE = join(DEV_STATE_DIR, 'ip-logs.json');
 const CHAT_STATE_FILE = join(DEV_STATE_DIR, 'chat-state.json');
-const DATABASE_URL = String(process.env.DATABASE_URL || '').trim();
+const DATABASE_URL = String(
+  process.env.DATABASE_URL ||
+  process.env.POSTGRES_URL ||
+  process.env.POSTGRESQL_URL ||
+  process.env.POSTGRES_PRIVATE_URL ||
+  process.env.PGURL ||
+  ''
+).trim();
+const IS_RAILWAY = Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID);
 let pgStateClient = null;
 let ipLogSaveTimer = null;
 let chatSaveTimer = null;
@@ -549,7 +557,7 @@ async function saveDevState() {
           }),
         ]
       );
-      return;
+      return { ok: true, backend: 'postgres' };
     } catch (err) {
       console.error('Failed to persist dev state to Postgres; falling back to file:', err?.message || err);
     }
@@ -571,9 +579,15 @@ async function saveDevState() {
       ),
       'utf8',
     );
+    return { ok: true, backend: 'file' };
   } catch (err) {
     console.error('Failed to persist dev state:', err);
+    return { ok: false, backend: 'none', error: err?.message || String(err) };
   }
+}
+
+if (IS_RAILWAY && !DATABASE_URL) {
+  console.warn('No Postgres URL found. Configure DATABASE_URL/POSTGRES_URL in Railway so updates and links persist across deploys.');
 }
 
 await loadDevState();
@@ -983,11 +997,23 @@ const app = Fastify({
                 res.end(JSON.stringify({ error: 'Update text required' }));
                 return;
               }
-              devState.updates.unshift({ id: randomUUID(), text: text.trim(), ts: new Date().toISOString() });
+
+              const newUpdate = { id: randomUUID(), text: text.trim(), ts: new Date().toISOString() };
+              devState.updates.unshift(newUpdate);
               if (devState.updates.length > 100) devState.updates.length = 100;
-              await saveDevState();
+
+              const persisted = await saveDevState();
+              if (IS_RAILWAY && persisted?.backend !== 'postgres') {
+                devState.updates = devState.updates.filter((u) => u.id !== newUpdate.id);
+                res.writeHead(503, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({
+                  error: 'Update was not saved to Postgres. Attach Railway PostgreSQL and set DATABASE_URL/POSTGRES_URL before adding updates.',
+                }));
+                return;
+              }
+
               res.writeHead(200, { 'Content-Type': 'application/json' });
-              res.end(JSON.stringify({ ok: true, updates: devState.updates }));
+              res.end(JSON.stringify({ ok: true, updates: devState.updates, persistedIn: persisted?.backend || 'unknown' }));
             } catch {
               res.writeHead(400, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ error: 'Bad Request' }));
