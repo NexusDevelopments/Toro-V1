@@ -255,26 +255,43 @@ async function deleteBunnyCDNPullZone(apiKey, zoneId) {
 
 function getCFWorkersSupport() {
   const accountId = String(process.env.CLOUDFLARE_ACCOUNT_ID || '').trim();
-  const apiToken = String(process.env.CLOUDFLARE_API_TOKEN || '').trim();
-  if (!accountId || !apiToken) {
+  const apiToken = String(process.env.CLOUDFLARE_API_TOKEN || process.env.CF_API_TOKEN || '').trim();
+  const globalApiKey = String(process.env.CLOUDFLARE_GLOBAL_API_KEY || '').trim();
+  const email = String(process.env.CLOUDFLARE_EMAIL || '').trim();
+
+  const hasTokenAuth = Boolean(apiToken);
+  const hasGlobalAuth = Boolean(globalApiKey && email);
+
+  if (!accountId || (!hasTokenAuth && !hasGlobalAuth)) {
     return {
       available: false,
       accountId: null,
-      apiToken: null,
-      reason: 'Set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN (Workers Scripts: Edit permission) to enable this provider.',
+      authHeaders: null,
+      reason: 'Set CLOUDFLARE_ACCOUNT_ID plus either CLOUDFLARE_API_TOKEN (or CF_API_TOKEN) or CLOUDFLARE_GLOBAL_API_KEY + CLOUDFLARE_EMAIL to enable Cloudflare Workers.',
     };
   }
-  return { available: true, accountId, apiToken, reason: '' };
+
+  const authHeaders = hasTokenAuth
+    ? { Authorization: `Bearer ${apiToken}` }
+    : { 'X-Auth-Email': email, 'X-Auth-Key': globalApiKey };
+
+  return { available: true, accountId, authHeaders, reason: '' };
 }
 
-async function _getCFSubdomain(accountId, apiToken) {
+async function _getCFSubdomain(accountId, authHeaders) {
   const resp = await fetch(
     `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/workers/subdomain`,
-    { headers: { Authorization: `Bearer ${apiToken}` } }
+    { headers: authHeaders }
   );
   if (!resp.ok) {
     const j = await resp.json().catch(() => ({}));
-    throw new Error(`Cloudflare API error ${resp.status}: ${j?.errors?.[0]?.message || ''}`);
+    const apiMsg = j?.errors?.[0]?.message || 'Unknown Cloudflare API error';
+    if (resp.status === 400 || resp.status === 401 || /authenticate/i.test(apiMsg)) {
+      throw new Error(
+        'Cloudflare authentication failed. Check CLOUDFLARE_ACCOUNT_ID and your credentials (CLOUDFLARE_API_TOKEN/CF_API_TOKEN, or CLOUDFLARE_GLOBAL_API_KEY + CLOUDFLARE_EMAIL).'
+      );
+    }
+    throw new Error(`Cloudflare API error ${resp.status}: ${apiMsg}`);
   }
   const data = await resp.json();
   const sub = data?.result?.subdomain;
@@ -282,8 +299,8 @@ async function _getCFSubdomain(accountId, apiToken) {
   return sub;
 }
 
-async function createCloudflareWorker(accountId, apiToken, workerName, targetUrl) {
-  const subdomain = await _getCFSubdomain(accountId, apiToken);
+async function createCloudflareWorker(accountId, authHeaders, workerName, targetUrl) {
+  const subdomain = await _getCFSubdomain(accountId, authHeaders);
 
   // Minimal module-format Worker that proxies all requests to the target origin
   const script = `export default {
@@ -305,13 +322,19 @@ async function createCloudflareWorker(accountId, apiToken, workerName, targetUrl
 
   const uploadResp = await fetch(
     `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(workerName)}`,
-    { method: 'PUT', headers: { Authorization: `Bearer ${apiToken}` }, body: form }
+    { method: 'PUT', headers: authHeaders, body: form }
   );
   if (!uploadResp.ok) {
     const j = await uploadResp.json().catch(() => ({}));
+    const apiMsg = j?.errors?.[0]?.message || 'Unknown Cloudflare API error';
     if (uploadResp.status === 403)
       throw new Error('API token lacks Workers Script Edit permission. Create a token with "Workers Scripts: Edit" at dash.cloudflare.com/profile/api-tokens.');
-    throw new Error(`Worker upload failed (${uploadResp.status}): ${j?.errors?.[0]?.message || ''}`);
+    if (uploadResp.status === 400 || uploadResp.status === 401 || /authenticate/i.test(apiMsg)) {
+      throw new Error(
+        'Cloudflare authentication failed while uploading Worker. Verify CLOUDFLARE_ACCOUNT_ID and auth credentials.'
+      );
+    }
+    throw new Error(`Worker upload failed (${uploadResp.status}): ${apiMsg}`);
   }
 
   // Enable workers.dev subdomain for this script
@@ -319,7 +342,7 @@ async function createCloudflareWorker(accountId, apiToken, workerName, targetUrl
     `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(workerName)}/subdomain`,
     {
       method: 'POST',
-      headers: { Authorization: `Bearer ${apiToken}`, 'Content-Type': 'application/json' },
+      headers: { ...authHeaders, 'Content-Type': 'application/json' },
       body: JSON.stringify({ enabled: true }),
     }
   );
@@ -327,11 +350,11 @@ async function createCloudflareWorker(accountId, apiToken, workerName, targetUrl
   return { workerName, hostname: `${workerName}.${subdomain}.workers.dev` };
 }
 
-async function deleteCloudflareWorker(accountId, apiToken, workerName) {
+async function deleteCloudflareWorker(accountId, authHeaders, workerName) {
   try {
     await fetch(
       `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(workerName)}`,
-      { method: 'DELETE', headers: { Authorization: `Bearer ${apiToken}` } }
+      { method: 'DELETE', headers: authHeaders }
     );
   } catch {
     // best-effort cleanup
@@ -1020,7 +1043,7 @@ const app = Fastify({
                     results.push({ ok: true, name: idea.label, url: `https://${hostname}` });
                   } else {
                     const workerName = `${idea.slug}-${linkId.slice(0, 6)}`;
-                    const { hostname } = await createCloudflareWorker(cfw.accountId, cfw.apiToken, workerName, targetUrl.toString());
+                    const { hostname } = await createCloudflareWorker(cfw.accountId, cfw.authHeaders, workerName, targetUrl.toString());
                     const rec = {
                       id: linkId,
                       url: `https://${hostname}`,
@@ -1086,7 +1109,7 @@ const app = Fastify({
                 }
                 if (link.provider === 'cfworker' && link.cfWorkerName) {
                   const cfw = getCFWorkersSupport();
-                  if (cfw.available) await deleteCloudflareWorker(cfw.accountId, cfw.apiToken, link.cfWorkerName);
+                  if (cfw.available) await deleteCloudflareWorker(cfw.accountId, cfw.authHeaders, link.cfWorkerName);
                 }
                 devState.links[idx].status = 'stopped';
               }
@@ -1175,7 +1198,7 @@ const app = Fastify({
                 const rawName = String(desiredSubdomain || '').trim().toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/^-+|-+$/g, '').slice(0, 50) || `toro-worker-${linkId.slice(0, 8)}`;
                 const workerName = `${rawName}-${linkId.slice(0, 6)}`;
                 try {
-                  const { hostname } = await createCloudflareWorker(cfw.accountId, cfw.apiToken, workerName, targetUrl.toString());
+                  const { hostname } = await createCloudflareWorker(cfw.accountId, cfw.authHeaders, workerName, targetUrl.toString());
                   const rec = {
                     id: linkId,
                     url: `https://${hostname}`,
