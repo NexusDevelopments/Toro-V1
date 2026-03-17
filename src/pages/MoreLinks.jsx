@@ -2,12 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import SidebarLayout from '../layouts/SidebarLayout';
 
 const seedLinks = [
-  'studyatlas-5nk9',
-  'studycentral-5nk9',
-  'studyeducation',
-  'studyhub-5nk9',
-  'studystudio-5nk9',
-  'studyworks-5nk9',
+  'https://educationhub-2.b-cdn.net',
+  'https://educationcentral-2.b-cdn.net',
+  'https://educationatlas-2.b-cdn.net',
+  'https://educationworks-2.b-cdn.net',
+  'https://educationstudio-2.b-cdn.net',
 ];
 
 const normalizePreviewUrl = (value) => {

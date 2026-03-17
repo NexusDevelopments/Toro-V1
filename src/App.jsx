@@ -6,7 +6,6 @@ import { useEffect, useMemo, memo, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { OptionsProvider, useOptions } from './utils/optionsContext';
 import { initPreload } from './utils/preload';
-import { designConfig as bgDesign } from './utils/config';
 import useReg from './utils/hooks/loader/useReg';
 import InteractiveNetworkBg from './components/InteractiveNetworkBg';
 import './index.css';
@@ -91,16 +90,10 @@ const ThemedApp = memo(() => {
   );
 
   const backgroundStyle = useMemo(() => {
-    const bgDesignConfig =
-      options.bgDesign === 'None'
-        ? 'none'
-        : (
-            bgDesign.find((d) => d.value.bgDesign === options.bgDesign) || bgDesign[0]
-          ).value.getCSS?.(options.bgDesignColor || '102, 105, 109') || 'none';
     return `
       body {
         color: ${options.siteTextColor || '#a0b0c8'};
-        background-image: ${bgDesignConfig};
+        background-image: none;
         background-color: ${options.bgColor || '#090304'};
         position: relative;
         overflow-x: hidden;
@@ -111,7 +104,7 @@ const ThemedApp = memo(() => {
         z-index: 1;
       }
     `;
-  }, [options.siteTextColor, options.bgDesign, options.bgDesignColor, options.bgColor]);
+  }, [options.siteTextColor, options.bgColor]);
 
   return (
     <>
