@@ -818,6 +818,85 @@ const devLinksHtml = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"
 
 const devPushUpdatesHtml = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Push Updates</title><style>*{box-sizing:border-box;margin:0;padding:0}body{background:#090304;color:#f4d4d8;font-family:ui-sans-serif,system-ui,sans-serif;min-height:100vh;padding:24px}.wrap{max-width:900px;margin:0 auto}.card{background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(10px);border-radius:16px;padding:18px;margin-bottom:16px}h1{font-size:2rem;color:#ff7788;margin-bottom:14px}h1 small{font-size:.95rem;color:#ffc7cf;margin-left:10px;opacity:.7}h2{font-size:1.05rem;margin-bottom:12px;color:#ffc7cf}input,textarea{width:100%;background:#130709;border:1px solid rgba(255,255,255,.2);border-radius:12px;color:#fff;padding:11px 12px;outline:none}input[type=datetime-local]{color-scheme:dark}textarea{min-height:80px;resize:vertical}button{background:linear-gradient(135deg,rgba(255,255,255,.15),rgba(255,255,255,.06));border:1px solid rgba(255,255,255,.26);color:#ffecef;border-radius:999px;padding:9px 14px;cursor:pointer}button:hover{border-color:rgba(255,255,255,.45)}.danger{border-color:rgba(255,80,80,.4)!important;color:#ffb8b8!important}.primary{border-color:rgba(255,119,136,.5)!important;color:#ff9aaa!important;background:linear-gradient(135deg,rgba(255,119,136,.2),rgba(255,119,136,.08))!important}.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.muted{opacity:.65;font-size:.85rem;line-height:1.5}.hidden{display:none}.pi{border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:12px 14px;background:rgba(0,0,0,.25);margin-bottom:8px;display:flex;justify-content:space-between;align-items:flex-start;gap:10px}.pi:last-child{margin-bottom:0}.pi-t{font-size:.9rem;line-height:1.5;flex:1}.pi-m{font-size:.76rem;opacity:.55;margin-top:4px}.li{border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:10px 12px;background:rgba(0,0,0,.18);margin-bottom:6px;font-size:.88rem;opacity:.8}.li:last-child{margin-bottom:0}.bs{display:inline-block;border-radius:8px;padding:6px 12px;font-size:.83rem;margin-bottom:12px}.bs.sched{background:rgba(255,184,100,.12);border:1px solid rgba(255,184,100,.3);color:#ffd580}.bs.none{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.15);color:#aaa}.empty{opacity:.45;font-size:.85rem;padding:8px 0}.count-badge{display:inline-block;background:rgba(255,119,136,.18);border:1px solid rgba(255,119,136,.35);color:#ff9aaa;border-radius:999px;font-size:.75rem;padding:1px 8px;margin-left:8px;vertical-align:middle}</style></head><body><div class="wrap"><h1>Push Updates <small>/dev/pushupdates</small></h1><div id="auth" class="card"><h2>Authenticate</h2><input id="pw" type="password" placeholder="Admin password"/><div style="height:10px"></div><button id="login">Enter</button><p id="err" style="display:none;color:#ffb8c0;font-size:.84rem;margin-top:8px"></p></div><div id="panel" class="hidden"><div class="card"><h2>Add Pending Update</h2><p class="muted" style="margin-bottom:10px">Write what changed in this push. These are staged \u2014 not visible to regular users until the scheduled release date or a manual release.</p><textarea id="newText" placeholder="Describe what changed in this code push..."></textarea><div style="height:10px"></div><button id="addBtn" class="primary">+ Add to Queue</button></div><div class="card"><h2>Pending Queue <span id="pendingCount" class="count-badge">0</span></h2><div id="queueBox"><p class="empty">Nothing pending yet.</p></div></div><div class="card"><h2>Schedule Release</h2><p class="muted" style="margin-bottom:10px">Set the date &amp; time when all pending updates automatically go live on the Updates page users see.</p><div id="schedSt"></div><div class="row" style="margin-bottom:12px"><input type="datetime-local" id="scheduleDt" style="flex:1"/><button id="setDateBtn">Set Schedule</button><button id="clearDateBtn" class="danger">Clear</button></div><div class="row"><button id="releaseNowBtn" class="primary">&#9889; Release Now</button><span class="muted">Immediately publish all pending updates live.</span></div></div><div class="card"><h2>Live Updates</h2><div id="liveBox"><p class="empty">No live updates yet.</p></div></div></div></div><script>let PASS='';function esc(s){return String(s||'').replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]||m));}function setErr(t){const e=document.getElementById('err');e.style.display=t?'block':'none';e.textContent=t||'';}async function post(url,data){const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const j=await r.json().catch(()=>({}));if(!r.ok) throw new Error(j.error||('Request failed '+r.status));return j;}function fmt(s){if(!s)return 'None';try{return new Date(s).toLocaleString();}catch{return s;}}function paintState(st){const pending=st.pendingUpdates||[];document.getElementById('pendingCount').textContent=pending.length;const qb=document.getElementById('queueBox');if(!pending.length){qb.innerHTML='<p class="empty">Nothing pending yet.</p>';}else{qb.innerHTML='';pending.forEach(u=>{const d=document.createElement('div');d.className='pi';d.innerHTML='<div style="flex:1"><div class="pi-t">'+esc(u.text)+'</div><div class="pi-m">Added '+fmt(u.addedAt)+'</div></div><div><button class="danger del-btn" data-id="'+esc(u.id)+'">Delete</button></div>';qb.appendChild(d);});qb.querySelectorAll('.del-btn').forEach(btn=>{btn.onclick=async()=>{try{await post('/dev/api/pushupdates/delete',{password:PASS,id:btn.dataset.id});const r=await post('/dev/api/pushupdates/list',{password:PASS});paintState(r);}catch(e){alert(e.message||'Failed');}};});}const ss=document.getElementById('schedSt');if(st.releaseDate){ss.innerHTML='<div class="bs sched">&#128197; Scheduled for: '+fmt(st.releaseDate)+'</div>';}else{ss.innerHTML='<div class="bs none">No release scheduled</div>';}const live=(st.liveUpdates||[]).slice(0,15);const lb=document.getElementById('liveBox');if(!live.length){lb.innerHTML='<p class="empty">No live updates yet.</p>';}else{lb.innerHTML='';live.forEach(u=>{const d=document.createElement('div');d.className='li';d.textContent=u.text;lb.appendChild(d);});}}document.getElementById('login').onclick=async()=>{setErr('');try{PASS=document.getElementById('pw').value||'';const r=await post('/dev/api/pushupdates/list',{password:PASS});document.getElementById('auth').classList.add('hidden');document.getElementById('panel').classList.remove('hidden');paintState(r);}catch(e){setErr(e.message||'Authentication failed');}};document.getElementById('pw').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('login').click();});document.getElementById('addBtn').onclick=async()=>{const text=document.getElementById('newText').value.trim();if(!text)return;try{const r=await post('/dev/api/pushupdates/add',{password:PASS,text});document.getElementById('newText').value='';paintState(r);}catch(e){alert(e.message||'Failed');}};document.getElementById('setDateBtn').onclick=async()=>{const v=document.getElementById('scheduleDt').value;if(!v){alert('Pick a date & time first.');return;}try{const iso=new Date(v).toISOString();const r=await post('/dev/api/pushupdates/set-date',{password:PASS,releaseDate:iso});paintState(r);}catch(e){alert(e.message||'Failed');}};document.getElementById('clearDateBtn').onclick=async()=>{try{const r=await post('/dev/api/pushupdates/set-date',{password:PASS,releaseDate:null});document.getElementById('scheduleDt').value='';paintState(r);}catch(e){alert(e.message||'Failed');}};document.getElementById('releaseNowBtn').onclick=async()=>{const pending=document.getElementById('pendingCount').textContent;if(pending==='0'){alert('No pending updates to release.');return;}if(!confirm('Release all pending updates live now?'))return;try{const r=await post('/dev/api/pushupdates/release',{password:PASS});alert('Done! '+r.released+' update(s) are now live.');paintState(r);}catch(e){alert(e.message||'Failed');}};setInterval(async()=>{if(!PASS)return;try{const r=await post('/dev/api/pushupdates/list',{password:PASS});paintState(r);}catch{}},30000);</script></body></html>`;
 
+// ---- GitHub Staging Support ----
+function getGitHubConfig() {
+  const token = String(process.env.GITHUB_TOKEN || '').trim();
+  const repo = String(process.env.GITHUB_REPO || '').trim();
+  const stagingBranch = String(process.env.GITHUB_STAGING_BRANCH || '').trim() || 'staging';
+  if (!token || !repo) return { available: false, reason: 'Configure GITHUB_TOKEN and GITHUB_REPO env vars in Railway.' };
+  return { available: true, token, repo, stagingBranch };
+}
+
+async function ghFetch(token, path, opts = {}) {
+  const r = await fetch(`https://api.github.com${path}`, {
+    ...opts,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'ToroV2-DevPanel/1.0',
+      'Content-Type': 'application/json',
+      ...(opts.headers || {}),
+    },
+  });
+  const json = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(json.message || `GitHub API ${r.status}`);
+  return json;
+}
+
+async function getStagedCommits(token, repo, stagingBranch) {
+  let data;
+  try {
+    data = await ghFetch(token, `/repos/${encodeURIComponent(repo)}/compare/main...${encodeURIComponent(stagingBranch)}`);
+  } catch (err) {
+    if (/404|not found|no common ancestor/i.test(String(err.message))) {
+      return { noBranch: true, ahead: 0, behind: 0, commits: [] };
+    }
+    throw err;
+  }
+  return {
+    noBranch: false,
+    ahead: data.ahead_by || 0,
+    behind: data.behind_by || 0,
+    commits: (data.commits || []).reverse().map(c => ({
+      sha: (c.sha || '').slice(0, 7),
+      message: ((c.commit?.message || '').split('\n')[0]).slice(0, 140),
+      date: c.commit?.author?.date || c.commit?.committer?.date || '',
+      author: c.commit?.author?.name || '',
+    })),
+  };
+}
+
+async function ensureStagingExists(token, repo, stagingBranch) {
+  let exists = false;
+  try {
+    await ghFetch(token, `/repos/${encodeURIComponent(repo)}/git/refs/heads/${encodeURIComponent(stagingBranch)}`);
+    exists = true;
+  } catch (err) {
+    if (!/404|not found/i.test(String(err.message))) throw err;
+  }
+  if (exists) return false;
+  const mainRef = await ghFetch(token, `/repos/${encodeURIComponent(repo)}/git/refs/heads/main`);
+  const sha = mainRef.object?.sha;
+  if (!sha) throw new Error('Cannot read main branch SHA');
+  await ghFetch(token, `/repos/${encodeURIComponent(repo)}/git/refs`, {
+    method: 'POST',
+    body: JSON.stringify({ ref: `refs/heads/${stagingBranch}`, sha }),
+  });
+  return true;
+}
+
+async function pushStagingToMain(token, repo, stagingBranch) {
+  const stagingRef = await ghFetch(token, `/repos/${encodeURIComponent(repo)}/git/refs/heads/${encodeURIComponent(stagingBranch)}`);
+  const sha = stagingRef.object?.sha;
+  if (!sha) throw new Error('Cannot read staging branch SHA');
+  return ghFetch(token, `/repos/${encodeURIComponent(repo)}/git/refs/heads/main`, {
+    method: 'PATCH',
+    body: JSON.stringify({ sha, force: false }),
+  });
+}
+
+const devPushUpdatesHtml2 = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Push Updates</title><style>*{box-sizing:border-box;margin:0;padding:0}body{background:#090304;color:#f4d4d8;font-family:ui-sans-serif,system-ui,sans-serif;min-height:100vh;padding:24px}.wrap{max-width:900px;margin:0 auto}.card{background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.14);backdrop-filter:blur(10px);border-radius:16px;padding:18px;margin-bottom:16px}h1{font-size:2rem;color:#ff7788;margin-bottom:14px}h2{font-size:1.05rem;margin-bottom:12px;color:#ffc7cf}input,textarea{width:100%;background:#130709;border:1px solid rgba(255,255,255,.2);border-radius:12px;color:#fff;padding:11px 12px;outline:none}input[type=datetime-local]{color-scheme:dark}textarea{min-height:80px;resize:vertical}button{background:linear-gradient(135deg,rgba(255,255,255,.15),rgba(255,255,255,.06));border:1px solid rgba(255,255,255,.26);color:#ffecef;border-radius:999px;padding:9px 14px;cursor:pointer}button:hover{border-color:rgba(255,255,255,.45)}button:disabled{opacity:.4;cursor:default}.danger{border-color:rgba(255,80,80,.4)!important;color:#ffb8b8!important}.primary{border-color:rgba(255,119,136,.5)!important;color:#ff9aaa!important;background:linear-gradient(135deg,rgba(255,119,136,.2),rgba(255,119,136,.08))!important}.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}.muted{opacity:.65;font-size:.85rem;line-height:1.5}.hidden{display:none}.commit{border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:10px 12px;background:rgba(0,0,0,.25);margin-bottom:7px}.commit-sha{font-family:monospace;font-size:.78rem;color:#ff9aaa;display:inline-block;margin-right:8px}.commit-msg{font-size:.88rem}.commit-meta{font-size:.74rem;opacity:.5;margin-top:3px}.pi{border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:12px 14px;background:rgba(0,0,0,.25);margin-bottom:8px;display:flex;justify-content:space-between;align-items:flex-start;gap:10px}.pi-t{font-size:.9rem;line-height:1.5;flex:1}.pi-m{font-size:.76rem;opacity:.55;margin-top:4px}.li{border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:10px 12px;background:rgba(0,0,0,.18);margin-bottom:6px;font-size:.88rem;opacity:.8}.bs{display:inline-block;border-radius:8px;padding:5px 10px;font-size:.82rem;margin-bottom:10px}.bs.ok{background:rgba(100,255,150,.1);border:1px solid rgba(100,255,150,.3);color:#a0ffb8}.bs.warn{background:rgba(255,184,100,.1);border:1px solid rgba(255,184,100,.3);color:#ffd580}.bs.err{background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.3);color:#ffb8b8}.badge{display:inline-block;background:rgba(255,119,136,.18);border:1px solid rgba(255,119,136,.35);color:#ff9aaa;border-radius:999px;font-size:.75rem;padding:1px 8px;margin-left:8px;vertical-align:middle}.setup-box{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:12px 14px;margin-top:8px;font-size:.83rem;line-height:1.9}.setup-box code{font-family:monospace;background:rgba(255,255,255,.1);padding:1px 5px;border-radius:4px}.empty{opacity:.45;font-size:.85rem;padding:6px 0}.result-msg{border-radius:12px;padding:10px 14px;margin-top:10px;font-size:.85rem;line-height:1.5;display:none}.result-msg.ok{background:rgba(100,255,150,.1);border:1px solid rgba(100,255,150,.3);color:#a0ffb8}.result-msg.err{background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.3);color:#ffb8b8}.result-msg.warn{background:rgba(255,184,100,.1);border:1px solid rgba(255,184,100,.3);color:#ffd580}</style></head><body><div class="wrap"><h1>Push Updates</h1><div id="auth" class="card"><h2>Authenticate</h2><input id="pw" type="password" placeholder="Admin password"/><div style="height:10px"></div><button id="loginBtn">Enter</button><p id="err" style="display:none;color:#ffb8c0;font-size:.84rem;margin-top:8px"></p></div><div id="panel" class="hidden"><div class="card"><h2>Code Queue</h2><div id="ghSection"></div></div><div class="card"><h2>Update Notes Queue <span id="pendingCount" class="badge">0</span></h2><p class="muted" style="margin-bottom:10px">What should users see on the Updates page? Write the description here &mdash; staged until you Release.</p><textarea id="newText" placeholder="e.g. Tab name corrected to Toro V2 across the site"></textarea><div style="height:8px"></div><button id="addBtn" class="primary">+ Add to Queue</button><div id="queueBox" style="margin-top:12px"></div></div><div class="card"><h2>Release</h2><p class="muted" style="margin-bottom:12px">Pushes staged code to <b>main</b> on GitHub &mdash; Railway auto-builds &amp; deploys. Also publishes queued update notes live.</p><div id="schedSt" style="margin-bottom:10px"></div><div class="row" style="margin-bottom:12px"><input type="datetime-local" id="scheduleDt" style="flex:1"/><button id="setDateBtn">Set Schedule</button><button id="clearDateBtn" class="danger">Clear</button></div><div class="row"><button id="releaseNowBtn" class="primary">&#9889; Release Now</button><span class="muted" style="flex:1">Push code live + publish notes immediately.</span></div><div id="releaseResult" class="result-msg"></div></div><div class="card"><h2>Live Updates</h2><div id="liveBox"></div></div></div></div><script>let PASS='';function esc(s){return String(s||'').replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]||m));}function setErr(t){const e=document.getElementById('err');e.style.display=t?'block':'none';e.textContent=t||'';}function fmt(s){if(!s)return'None';try{return new Date(s).toLocaleString();}catch{return s;}}async function post(url,data){const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||('Request failed '+r.status));return j;}function paintGitHub(gh){const el=document.getElementById('ghSection');if(!gh||!gh.available){el.innerHTML='<div class="bs err">&#9888; Not configured</div><div class="setup-box">To enable the code queue, add these in Railway environment variables:<br><b>GITHUB_TOKEN</b> &mdash; Personal Access Token with <code>repo</code> scope<br><b>GITHUB_REPO</b> &mdash; e.g. <code>NexusDevelopments/Toro-V1</code><br><b>GITHUB_STAGING_BRANCH</b> &mdash; staging branch name (default: <code>staging</code>)<br><br>Then push code to staging instead of main:<br><code>git push nexus HEAD:staging</code><br><br>On Release, the server calls GitHub API to push staging to main and Railway auto-deploys.</div>';return;}if(gh.error){el.innerHTML='<div class="bs err">GitHub error: '+esc(gh.error)+'</div>';return;}if(gh.noBranch){el.innerHTML='<div class="bs warn">Staging branch does not exist yet</div><div class="setup-box">Click below to create the <code>'+esc(gh.stagingBranch)+'</code> branch, then push code to it:<br><code>git push nexus HEAD:'+esc(gh.stagingBranch)+'</code></div><div style="height:8px"></div><button id="createBranchBtn">Create staging branch on GitHub</button>';setTimeout(()=>{const btn=document.getElementById('createBranchBtn');if(btn)btn.onclick=async()=>{try{btn.disabled=true;await post('/dev/api/pushupdates/ensure-staging',{password:PASS});await loadState();}catch(e){alert(e.message||'Failed');btn.disabled=false;}};},0);return;}const count=gh.ahead||0;el.innerHTML=(count>0?'<div class="bs warn">&#128308; '+count+' commit'+(count!==1?'s':'')+' staged and ready</div>':'<div class="bs ok">&#10003; Nothing staged &mdash; staging matches main</div>')+(gh.behind>0?'<div class="bs err" style="margin-left:8px;display:inline-block">&#9888; staging is '+gh.behind+' commits behind main</div>':'')+' <p class="muted" style="margin:6px 0 8px">Push code to queue: <code>git push nexus HEAD:'+esc(gh.stagingBranch)+'</code></p>'+(count===0?'<p class="empty">No staged commits. Push to staging first.</p>':gh.commits.map(c=>'<div class="commit"><span class="commit-sha">'+esc(c.sha)+'</span><span class="commit-msg">'+esc(c.message)+'</span><div class="commit-meta">'+esc(c.author)+' &middot; '+fmt(c.date)+'</div></div>').join(''));}function paintState(st){document.getElementById('pendingCount').textContent=(st.pendingUpdates||[]).length;paintGitHub(st.github);const qb=document.getElementById('queueBox');if(!(st.pendingUpdates||[]).length){qb.innerHTML='<p class="empty">No update notes queued.</p>';}else{qb.innerHTML='';(st.pendingUpdates||[]).forEach(u=>{const d=document.createElement('div');d.className='pi';d.innerHTML='<div style="flex:1"><div class="pi-t">'+esc(u.text)+'</div><div class="pi-m">Added '+fmt(u.addedAt)+'</div></div><button class="danger del-btn" data-id="'+esc(u.id)+'">Delete</button>';qb.appendChild(d);});qb.querySelectorAll('.del-btn').forEach(btn=>{btn.onclick=async()=>{try{const r=await post('/dev/api/pushupdates/delete',{password:PASS,id:btn.dataset.id});paintState(r);}catch(e){alert(e.message||'Failed');}};});}const ss=document.getElementById('schedSt');ss.innerHTML=st.releaseDate?'<div class="bs warn">&#128197; Scheduled: '+fmt(st.releaseDate)+'</div>':'<div class="bs ok" style="background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.15);color:#aaa">No schedule set</div>';const lb=document.getElementById('liveBox');const live=(st.liveUpdates||[]).slice(0,15);lb.innerHTML=live.length?live.map(u=>'<div class="li">'+esc(u.text)+'</div>').join(''):'<p class="empty">No live updates yet.</p>';}async function loadState(){const r=await post('/dev/api/pushupdates/list',{password:PASS});paintState(r);return r;}document.getElementById('loginBtn').onclick=async()=>{setErr('');try{PASS=document.getElementById('pw').value||'';await loadState();document.getElementById('auth').classList.add('hidden');document.getElementById('panel').classList.remove('hidden');}catch(e){setErr(e.message||'Authentication failed');}};document.getElementById('pw').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('loginBtn').click();});document.getElementById('addBtn').onclick=async()=>{const text=document.getElementById('newText').value.trim();if(!text)return;try{const r=await post('/dev/api/pushupdates/add',{password:PASS,text});document.getElementById('newText').value='';paintState(r);}catch(e){alert(e.message||'Failed');}};document.getElementById('setDateBtn').onclick=async()=>{const v=document.getElementById('scheduleDt').value;if(!v){alert('Pick a date & time first.');return;}try{const r=await post('/dev/api/pushupdates/set-date',{password:PASS,releaseDate:new Date(v).toISOString()});paintState(r);}catch(e){alert(e.message||'Failed');}};document.getElementById('clearDateBtn').onclick=async()=>{try{const r=await post('/dev/api/pushupdates/set-date',{password:PASS,releaseDate:null});document.getElementById('scheduleDt').value='';paintState(r);}catch(e){alert(e.message||'Failed');}};document.getElementById('releaseNowBtn').onclick=async()=>{const rr=document.getElementById('releaseResult');rr.style.display='none';try{const r=await post('/dev/api/pushupdates/release',{password:PASS});let msg='';if(r.codePushed)msg+='&#10003; Code pushed to main &mdash; Railway is building + deploying. ';if(r.codeError)msg+='&#9888; Code push failed: '+esc(r.codeError)+'. ';if(r.released>0)msg+='&#10003; '+r.released+' update note(s) are now live. ';if(!msg)msg='Nothing to release. Stage code commits or add update notes first.';rr.className='result-msg '+(r.codeError?'warn':'ok');rr.style.display='block';rr.innerHTML=msg;paintState(r);}catch(e){rr.className='result-msg err';rr.style.display='block';rr.textContent=e.message||'Release failed';}};setInterval(async()=>{if(!PASS)return;try{await loadState();}catch{};},30000);</script></body></html>`;
+
 function verifyLogPassword(candidate) {
   try {
     const candidateHash = scryptSync(candidate, LOG_SALT, 64);
@@ -984,7 +1063,7 @@ const app = Fastify({
       if (pathname === '/dev/pushupdates' || pathname === '/dev/pushupdates/') {
         if (req.method === 'GET') {
           res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-          res.end(devPushUpdatesHtml);
+          res.end(devPushUpdatesHtml2);
           return;
         }
       }
@@ -1113,7 +1192,7 @@ const app = Fastify({
         if (req.method === 'POST') {
           let body = '';
           req.on('data', c => { body += c; if (body.length > 8192) req.destroy(); });
-          req.on('end', () => {
+          req.on('end', async () => {
             try {
               const { password } = JSON.parse(body || '{}');
               if (typeof password !== 'string' || !verifyLogPassword(password)) {
@@ -1121,8 +1200,18 @@ const app = Fastify({
                 res.end(JSON.stringify({ error: 'Unauthorized' }));
                 return;
               }
+              const gh = getGitHubConfig();
+              let githubInfo = { available: gh.available, reason: gh.available ? undefined : gh.reason };
+              if (gh.available) {
+                try {
+                  const staged = await getStagedCommits(gh.token, gh.repo, gh.stagingBranch);
+                  githubInfo = { available: true, repo: gh.repo, stagingBranch: gh.stagingBranch, ...staged };
+                } catch (err) {
+                  githubInfo = { available: true, repo: gh.repo, stagingBranch: gh.stagingBranch, error: err.message || String(err) };
+                }
+              }
               res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-              res.end(JSON.stringify({ ok: true, ...pushUpdatesState() }));
+              res.end(JSON.stringify({ ok: true, ...pushUpdatesState(), github: githubInfo }));
             } catch {
               res.writeHead(400, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ error: 'Bad Request' }));
@@ -1236,9 +1325,20 @@ const app = Fastify({
                 res.end(JSON.stringify({ error: 'Unauthorized' }));
                 return;
               }
+              const gh = getGitHubConfig();
+              let codePushed = false;
+              let codeError = null;
+              if (gh.available) {
+                try {
+                  await pushStagingToMain(gh.token, gh.repo, gh.stagingBranch);
+                  codePushed = true;
+                } catch (err) {
+                  codeError = err.message || String(err);
+                }
+              }
               const released = await releasePendingNow();
               res.writeHead(200, { 'Content-Type': 'application/json' });
-              res.end(JSON.stringify({ ok: true, released, ...pushUpdatesState() }));
+              res.end(JSON.stringify({ ok: true, released, codePushed, codeError, ...pushUpdatesState() }));
             } catch {
               res.writeHead(400, { 'Content-Type': 'application/json' });
               res.end(JSON.stringify({ error: 'Bad Request' }));
@@ -1247,6 +1347,36 @@ const app = Fastify({
           return;
         }
       }
+
+            if (pathname === '/dev/api/pushupdates/ensure-staging') {
+              if (req.method === 'POST') {
+                let body = '';
+                req.on('data', c => { body += c; if (body.length > 8192) req.destroy(); });
+                req.on('end', async () => {
+                  try {
+                    const { password } = JSON.parse(body || '{}');
+                    if (typeof password !== 'string' || !verifyLogPassword(password)) {
+                      res.writeHead(401, { 'Content-Type': 'application/json' });
+                      res.end(JSON.stringify({ error: 'Unauthorized' }));
+                      return;
+                    }
+                    const gh = getGitHubConfig();
+                    if (!gh.available) {
+                      res.writeHead(503, { 'Content-Type': 'application/json' });
+                      res.end(JSON.stringify({ error: gh.reason }));
+                      return;
+                    }
+                    const created = await ensureStagingExists(gh.token, gh.repo, gh.stagingBranch);
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ ok: true, created, stagingBranch: gh.stagingBranch }));
+                  } catch (err) {
+                    res.writeHead(500, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: err.message || 'Failed' }));
+                  }
+                });
+                return;
+              }
+            }
 
       if (pathname === '/dev/api/links/list') {
         if (req.method === 'POST') {
