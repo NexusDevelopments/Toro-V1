@@ -225,7 +225,7 @@ export const meta = [
   {
     option: 'Default',
     value: {
-      tabName: 'Toro V1',
+      tabName: 'Toro V2',
       tabIcon: '/icon.svg',
     },
   },

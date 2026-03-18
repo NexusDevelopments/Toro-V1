@@ -29,7 +29,7 @@ const MoreLinks = lazyLoad(importMoreLinks);
 const SearchPage = lazyLoad(importSearchPage);
 const ChatRooms = lazyLoad(importChatRooms);
 const Player = lazyLoad(() => import('./pages/Player'));
-const BOOT_STEPS = ['Authenticating...', 'Loading Files...', 'Welcome to Toro V1..'];
+const BOOT_STEPS = ['Authenticating...', 'Loading Files...', 'Welcome to Toro V2..'];
 
 initPreload('/materials', importApps);
 initPreload('/docs', importGms);
