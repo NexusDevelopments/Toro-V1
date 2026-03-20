@@ -7,8 +7,34 @@ import theme from '../styles/theming.module.css';
 import clsx from 'clsx';
 
 const Pagination = lazy(() => import('@mui/material/Pagination'));
+const GAME_VISITS_STORAGE_KEY = 'gameVisitCounts';
 
-const AppCard = memo(({ app, onClick, fallbackMap, onImgError, itemTheme, itemStyles }) => {
+const getGameVisitKey = (app) => {
+  const firstUrl = Array.isArray(app?.url) ? app.url[0] : app?.url;
+  return `${app?.appName || 'unknown'}::${firstUrl || 'unknown'}`;
+};
+
+const readGameVisitCounts = () => {
+  if (typeof window === 'undefined') return {};
+
+  try {
+    const stored = window.localStorage.getItem(GAME_VISITS_STORAGE_KEY);
+    const parsed = stored ? JSON.parse(stored) : {};
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
+const writeGameVisitCounts = (counts) => {
+  if (typeof window === 'undefined') return;
+
+  try {
+    window.localStorage.setItem(GAME_VISITS_STORAGE_KEY, JSON.stringify(counts));
+  } catch {}
+};
+
+const AppCard = memo(({ app, visitCount, onClick, fallbackMap, onImgError, itemTheme, itemStyles }) => {
   const [loaded, setLoaded] = useState(false);
   
   return (
@@ -41,6 +67,7 @@ const AppCard = memo(({ app, onClick, fallbackMap, onImgError, itemTheme, itemSt
         )}
       </div>
       <p className="text-m font-semibold mb-3 flex-grow line-clamp-2">{app.appName.split('').join('\u200B')}</p>
+      <p className="mb-3 text-xs opacity-70">{visitCount} {visitCount === 1 ? 'visit' : 'visits'}</p>
       <button className={clsx('flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium mt-auto self-start', itemTheme.glassButton)}>
         <Play size={16} fill="currentColor" />
         Play
@@ -68,6 +95,14 @@ const Games = memo(() => {
   const [dlCount, setDlCount] = useState(0);
   const [filter, setFilter] = useState('all');
   const [dlGames, setDlGames] = useState([]);
+  const [visitCounts, setVisitCounts] = useState(() => readGameVisitCounts());
+
+  useEffect(() => {
+    const syncVisitCounts = () => setVisitCounts(readGameVisitCounts());
+
+    window.addEventListener('storage', syncVisitCounts);
+    return () => window.removeEventListener('storage', syncVisitCounts);
+  }, []);
 
   useEffect(() => {
     import('../utils/localGmLoader').then(async (m) => {
@@ -101,6 +136,13 @@ const Games = memo(() => {
       });
     }
 
+    if (filter === 'most-played') {
+      toFilter = all.filter((game) => (visitCounts[getGameVisitKey(game)] || 0) > 0);
+      toFilter = [...toFilter].sort(
+        (a, b) => (visitCounts[getGameVisitKey(b)] || 0) - (visitCounts[getGameVisitKey(a)] || 0),
+      );
+    }
+
     if (q) {
       const fq = q.toLowerCase().trim().replace(/\s/g, '');
       toFilter = toFilter.filter((game) => {
@@ -112,7 +154,7 @@ const Games = memo(() => {
     const total = Math.ceil(toFilter.length / perPage);
     const paged = toFilter.slice((page - 1) * perPage, page * perPage);
     return { filteredGames: toFilter, paged, totalPages: total };
-  }, [all, filter, dlGames, q, page, perPage]);
+  }, [all, filter, dlGames, q, page, perPage, visitCounts]);
 
   useEffect(() => {
     if (page > filtered.totalPages && filtered.totalPages > 0) setPage(1);
@@ -121,6 +163,18 @@ const Games = memo(() => {
   const navApp = useCallback(
     (app) => {
       if (!app) return;
+      const appKey = getGameVisitKey(app);
+
+      setVisitCounts((prev) => {
+        const next = {
+          ...prev,
+          [appKey]: (prev[appKey] || 0) + 1,
+        };
+
+        writeGameVisitCounts(next);
+        return next;
+      });
+
       nav('/docs/r/', { state: { app } });
     },
     [nav],
@@ -191,6 +245,20 @@ const Games = memo(() => {
           >
             Downloaded ({dlCount})
           </button>
+          <button
+            onClick={() => {
+              setFilter('most-played');
+              setPage(1);
+            }}
+            className={clsx(
+              'text-xs whitespace-nowrap px-3 py-1.5 rounded-full',
+              theme.glassButton,
+              theme.glassPill,
+              filter === 'most-played' ? 'border-white/40 bg-white/12' : 'opacity-90',
+            )}
+          >
+            Most Played
+          </button>
         </div>
       </div>
 
@@ -199,12 +267,18 @@ const Games = memo(() => {
           Local games not played for 3+ days are automatically removed
         </div>
       )}
+      {filter === 'most-played' && (
+        <div className="text-center text-xs opacity-60 pb-2">
+          Games sorted by your most visited
+        </div>
+      )}
 
       <div className="flex flex-wrap justify-center pb-2">
         {filtered.paged.map((game) => (
           <AppCard
             key={game.appName}
             app={game}
+            visitCount={visitCounts[getGameVisitKey(game)] || 0}
             onClick={navApp}
             fallbackMap={fallback}
             onImgError={handleImgError}
