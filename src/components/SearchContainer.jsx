@@ -111,11 +111,7 @@ const SearchContainer = memo(function SearchContainer({ logo = true, cls, nav = 
     >
       {logo && <Logo options="w-[15.8rem] h-30" />}
       <GlowWrapper
-        glowOptions={{
-          color: options.glowWrapperColor || '255, 255, 255',
-          size: 70,
-          opacity: options.glowEffects === false ? 0 : 0.2,
-        }}
+        glowOptions={{ color: options.glowWrapperColor || '255, 255, 255', size: 70, opacity: 0.2 }}
       >
         <div className="w-[min(92vw,40.625rem)]">
           <div

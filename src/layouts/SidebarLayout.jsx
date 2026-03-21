@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { House, Gamepad2, Settings, BellRing, MessageCircle, Link2, Clapperboard } from 'lucide-react';
+import { House, Gamepad2, Settings, BellRing, MessageCircle, Link2 } from 'lucide-react';
 import { useOptions } from '/src/utils/optionsContext';
 import clsx from 'clsx';
 import theme from '../styles/theming.module.css';
@@ -7,7 +7,6 @@ import theme from '../styles/theming.module.css';
 const sidebarItems = [
   { to: '/', label: 'Home', icon: House, exact: true },
   { to: '/docs', label: 'Games', icon: Gamepad2 },
-  { to: '/movies', label: 'Movies', icon: Clapperboard },
   { to: '/more-links', label: 'More Links', icon: Link2 },
   { to: '/chat-rooms', label: 'Chat Rooms', icon: MessageCircle },
   { to: '/settings', label: 'Settings', icon: Settings },

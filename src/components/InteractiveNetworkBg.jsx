@@ -9,12 +9,6 @@ const InteractiveNetworkBg = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    if (options.particleEffects === false) {
-      const ctx = canvas.getContext('2d');
-      ctx?.clearRect(0, 0, canvas.width, canvas.height);
-      return;
-    }
-
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
@@ -27,12 +21,7 @@ const InteractiveNetworkBg = () => {
     const pointColor = 'rgba(255,255,255,0.72)';
 
     const points = [];
-    const desiredCount = () => {
-      const base = Math.max(70, Math.floor((window.innerWidth * window.innerHeight) / 20000));
-      if (options.performancePreset === 'fast') return Math.max(35, Math.floor(base * 0.5));
-      if (options.performancePreset === 'fancy') return Math.floor(base * 1.15);
-      return base;
-    };
+    const desiredCount = () => Math.max(70, Math.floor((window.innerWidth * window.innerHeight) / 20000));
 
     const resize = () => {
       canvas.width = Math.floor(window.innerWidth * dpr);
@@ -80,7 +69,7 @@ const InteractiveNetworkBg = () => {
         const mdx = p.x - mouse.x;
         const mdy = p.y - mouse.y;
         const md2 = mdx * mdx + mdy * mdy;
-        if (options.mouseHighlightTracking !== false && md2 < hoverDistSq) {
+        if (md2 < hoverDistSq) {
           const force = (hoverDistSq - md2) / hoverDistSq;
           const inv = 1 / Math.max(Math.sqrt(md2), 1);
           p.vx += mdx * inv * force * 0.07;
@@ -127,8 +116,7 @@ const InteractiveNetworkBg = () => {
       }
 
       // Light star field for depth
-      const starCount = options.performancePreset === 'fast' ? 12 : options.performancePreset === 'fancy' ? 48 : 36;
-      for (let i = 0; i < starCount; i += 1) {
+      for (let i = 0; i < 36; i += 1) {
         const sx = ((i * 9973) % canvas.width);
         const sy = ((i * 4451 + Date.now() * 0.01) % canvas.height);
         ctx.fillStyle = 'rgba(255,255,255,0.28)';
@@ -151,7 +139,7 @@ const InteractiveNetworkBg = () => {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseleave', onLeave);
     };
-  }, [options.bgDesignColor, options.mouseHighlightTracking, options.particleEffects, options.performancePreset]);
+  }, [options.bgDesignColor]);
 
   return (
     <canvas
@@ -161,7 +149,7 @@ const InteractiveNetworkBg = () => {
         inset: 0,
         zIndex: 0,
         pointerEvents: 'none',
-        opacity: options.particleEffects === false ? 0 : 0.95,
+        opacity: 0.95,
       }}
       aria-hidden="true"
     />

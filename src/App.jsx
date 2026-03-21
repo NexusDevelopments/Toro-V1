@@ -17,7 +17,6 @@ const importGms = () => import('./pages/Apps2');
 const importSettings = () => import('./pages/Settings');
 const importUpdates = () => import('./pages/Updates');
 const importMoreLinks = () => import('./pages/MoreLinks');
-const importMovies = () => import('./pages/Movies');
 const importSearchPage = () => import('./pages/SearchPage');
 const importChatRooms = () => import('./pages/ChatRooms');
 
@@ -27,7 +26,6 @@ const Apps2 = lazyLoad(importGms);
 const Settings = lazyLoad(importSettings);
 const Updates = lazyLoad(importUpdates);
 const MoreLinks = lazyLoad(importMoreLinks);
-const Movies = lazyLoad(importMovies);
 const SearchPage = lazyLoad(importSearchPage);
 const ChatRooms = lazyLoad(importChatRooms);
 const Player = lazyLoad(() => import('./pages/Player'));
@@ -38,7 +36,6 @@ initPreload('/docs', importGms);
 initPreload('/settings', importSettings);
 initPreload('/updates', importUpdates);
 initPreload('/more-links', importMoreLinks);
-initPreload('/movies', importMovies);
 initPreload('/search', importSearchPage);
 initPreload('/chat-rooms', importChatRooms);
 initPreload('/', importHome);
@@ -82,7 +79,6 @@ const ThemedApp = memo(() => {
       { path: '/docs/r', element: <Player /> },
       { path: '/search', element: <SearchPage />},
       { path: '/chat-rooms', element: <ChatRooms /> },
-      { path: '/movies', element: <Movies /> },
       { path: '/more-links', element: <MoreLinks /> },
       { path: '/settings', element: <Settings /> },
       { path: '/updates', element: <Updates /> },
@@ -107,34 +103,8 @@ const ThemedApp = memo(() => {
         position: relative;
         z-index: 1;
       }
-
-      ${options.backdropBlur === false ? `
-      .glassButton,
-      .glassIconButton,
-      .appsSearchColor,
-      .searchBarColor,
-      .searchResultStyle {
-        backdrop-filter: none !important;
-        -webkit-backdrop-filter: none !important;
-      }` : ''}
-
-      ${options.hoverTransforms === false ? `
-      .glassButton:hover,
-      .glassIconButton:hover,
-      .appsSearchColor:focus-within {
-        transform: none !important;
-      }` : ''}
-
-      ${options.animationsEnabled === false ? `
-      *, *::before, *::after {
-        animation: none !important;
-        transition: none !important;
-      }
-      .route-fade-enter {
-        animation: none !important;
-      }` : ''}
     `;
-  }, [options.animationsEnabled, options.backdropBlur, options.bgColor, options.hoverTransforms, options.siteTextColor]);
+  }, [options.siteTextColor, options.bgColor]);
 
   return (
     <>

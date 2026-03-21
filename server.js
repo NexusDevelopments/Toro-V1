@@ -3,12 +3,12 @@ import Fastify from "fastify";
 import fastifyStatic from "@fastify/static";
 import compress from "@fastify/compress";
 import fastifyCookie from "@fastify/cookie";
-import { join, dirname, extname, basename } from "node:path";
+import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "node:http";
 import { scryptSync, timingSafeEqual, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile, readdir, stat } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { spawn, spawnSync } from "node:child_process";
 import { logging, server as wisp } from "@mercuryworkshop/wisp-js/server";
 import { createBareServer } from "@tomphttp/bare-server-node";
@@ -56,8 +56,6 @@ const DEV_STATE_DIR = join(__dirname, 'data');
 const DEV_STATE_FILE = join(DEV_STATE_DIR, 'dev-state.json');
 const IP_LOG_FILE = join(DEV_STATE_DIR, 'ip-logs.json');
 const CHAT_STATE_FILE = join(DEV_STATE_DIR, 'chat-state.json');
-const MOVIES_LIBRARY_FILE = join(DEV_STATE_DIR, 'movies.json');
-const PUBLIC_MOVIES_DIR = join(__dirname, 'public', 'movies');
 function resolveDatabaseUrl() {
   const direct = [
     process.env.DATABASE_URL,
@@ -753,58 +751,20 @@ const normalizeRoomName = (room) =>
     .replace(/\s+/g, '-')
     .slice(0, 24);
 
-const getOrCreatePgStateClient = async () => {
-  if (!DATABASE_URL) return null;
-  if (pgStateClient) return pgStateClient;
-
-  const pgModule = await import('pg');
-  const Client = pgModule.Client || pgModule.default?.Client;
-  if (!Client) throw new Error('pg Client export not found');
-
-  const client = new Client({
-    connectionString: DATABASE_URL,
-    ssl: DATABASE_URL.includes('sslmode=disable') ? false : { rejectUnauthorized: false },
-  });
-  await client.connect();
-  await client.query(
-    'CREATE TABLE IF NOT EXISTS app_state (state_key TEXT PRIMARY KEY, state_value JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())'
-  );
-
-  pgStateClient = client;
-  return client;
-};
-
-const persistChatState = async () => {
-  const payload = { rooms: chatState.rooms };
-
-  if (DATABASE_URL) {
-    try {
-      const client = await getOrCreatePgStateClient();
-      if (client) {
-        await client.query(
-          'INSERT INTO app_state (state_key, state_value, updated_at) VALUES ($1, $2::jsonb, NOW()) ON CONFLICT (state_key) DO UPDATE SET state_value = EXCLUDED.state_value, updated_at = NOW()',
-          ['chat_state', JSON.stringify(payload)]
-        );
-        return;
-      }
-    } catch (err) {
-      console.error('Failed to persist chat state to Postgres; falling back to file:', err?.message || err);
-    }
-  }
-
-  try {
-    await mkdir(DEV_STATE_DIR, { recursive: true });
-    await writeFile(CHAT_STATE_FILE, JSON.stringify(payload, null, 2), 'utf8');
-  } catch (err) {
-    console.error('Failed to persist chat state:', err);
-  }
-};
-
 const scheduleChatSave = () => {
   if (chatSaveTimer) return;
   chatSaveTimer = setTimeout(async () => {
     chatSaveTimer = null;
-    await persistChatState();
+    try {
+      await mkdir(DEV_STATE_DIR, { recursive: true });
+      await writeFile(
+        CHAT_STATE_FILE,
+        JSON.stringify({ rooms: chatState.rooms }, null, 2),
+        'utf8',
+      );
+    } catch (err) {
+      console.error('Failed to persist chat state:', err);
+    }
   }, 1000);
 };
 
@@ -836,49 +796,30 @@ const roomPresence = (room) => {
 };
 
 async function loadChatState() {
-  const applyParsedChatState = (parsed) => {
-    if (!(parsed?.rooms && typeof parsed.rooms === 'object')) return;
-
-    const nextRooms = {};
-    for (const [roomName, roomData] of Object.entries(parsed.rooms)) {
-      const normalized = normalizeRoomName(roomName);
-      if (!normalized) continue;
-      const msgs = Array.isArray(roomData?.messages)
-        ? roomData.messages
-            .filter((m) => typeof m?.username === 'string' && typeof m?.ts === 'string')
-            .slice(-5000)
-            .map((m) => ({
-              id: typeof m.id === 'string' ? m.id : randomUUID(),
-              username: m.username.slice(0, 15),
-              text: typeof m.text === 'string' ? m.text.slice(0, 1200) : '',
-              image: typeof m.image === 'string' ? m.image.slice(0, 450000) : '',
-              ts: m.ts,
-            }))
-        : [];
-      nextRooms[normalized] = { name: normalized, messages: msgs };
-    }
-
-    if (Object.keys(nextRooms).length > 0) chatState.rooms = nextRooms;
-  };
-
-  if (DATABASE_URL) {
-    try {
-      const client = await getOrCreatePgStateClient();
-      if (client) {
-        const result = await client.query('SELECT state_value FROM app_state WHERE state_key = $1 LIMIT 1', ['chat_state']);
-        if (result.rows?.[0]?.state_value) {
-          applyParsedChatState(result.rows[0].state_value);
-          return;
-        }
-      }
-    } catch (err) {
-      console.error('Failed to load chat state from Postgres; falling back to file:', err?.message || err);
-    }
-  }
-
   try {
     const raw = await readFile(CHAT_STATE_FILE, 'utf8');
-    applyParsedChatState(JSON.parse(raw));
+    const parsed = JSON.parse(raw);
+    if (parsed?.rooms && typeof parsed.rooms === 'object') {
+      const nextRooms = {};
+      for (const [roomName, roomData] of Object.entries(parsed.rooms)) {
+        const normalized = normalizeRoomName(roomName);
+        if (!normalized) continue;
+        const msgs = Array.isArray(roomData?.messages)
+          ? roomData.messages
+              .filter((m) => typeof m?.username === 'string' && typeof m?.ts === 'string')
+              .slice(-5000)
+              .map((m) => ({
+                id: typeof m.id === 'string' ? m.id : randomUUID(),
+                username: m.username.slice(0, 15),
+                text: typeof m.text === 'string' ? m.text.slice(0, 1200) : '',
+                image: typeof m.image === 'string' ? m.image.slice(0, 450000) : '',
+                ts: m.ts,
+              }))
+          : [];
+        nextRooms[normalized] = { name: normalized, messages: msgs };
+      }
+      if (Object.keys(nextRooms).length > 0) chatState.rooms = nextRooms;
+    }
   } catch {
     // No persisted chat state file yet.
   }
@@ -1112,194 +1053,6 @@ async function checkLinkStatus(input) {
       error: err?.name === 'TimeoutError' ? 'Timeout' : (err?.message || 'Request failed'),
     };
   }
-}
-
-const TMDB_KEY = String(process.env.TMDB_API_KEY || '').trim();
-
-const MOVIE_FALLBACK_ITEMS = [
-  {
-    id: 'fallback-1',
-    title: 'Oppenheimer',
-    year: '2023',
-    rating: 8.3,
-    poster: 'https://image.tmdb.org/t/p/w342/ptpr0kGAckfQkJeJIt8st5dglvd.jpg',
-    backdrop: 'https://image.tmdb.org/t/p/w1280/fm6KqXpk3M2HVveHwCrBSSBaO0V.jpg',
-    overview: 'The story of J. Robert Oppenheimer and the creation of the atomic bomb.',
-  },
-  {
-    id: 'fallback-2',
-    title: 'Dune: Part Two',
-    year: '2024',
-    rating: 8.2,
-    poster: 'https://image.tmdb.org/t/p/w342/8b8R8l88Qje9dn9OE8PY05Nxl1X.jpg',
-    backdrop: 'https://image.tmdb.org/t/p/w1280/xOMo8BRK7PfcJv9JCnx7s5hj0PX.jpg',
-    overview: 'Paul Atreides unites with the Fremen to seek revenge against those who destroyed his family.',
-  },
-  {
-    id: 'fallback-3',
-    title: 'The Batman',
-    year: '2022',
-    rating: 7.7,
-    poster: 'https://image.tmdb.org/t/p/w342/74xTEgt7R36Fpooo50r9T25onhq.jpg',
-    backdrop: 'https://image.tmdb.org/t/p/w1280/b0PlSFdDwbyK0cf5RxwDpaOJQvQ.jpg',
-    overview: 'Batman uncovers corruption in Gotham while pursuing the Riddler.',
-  },
-  {
-    id: 'fallback-4',
-    title: 'Spider-Man: Across the Spider-Verse',
-    year: '2023',
-    rating: 8.4,
-    poster: 'https://image.tmdb.org/t/p/w342/8Vt6mWEReuy4Of61Lnj5Xj704m8.jpg',
-    backdrop: 'https://image.tmdb.org/t/p/w1280/4HodYYKEIsGOdinkGi2Ucz6X9i0.jpg',
-    overview: 'Miles Morales catapults across the Multiverse in an epic animated adventure.',
-  },
-];
-
-const movieLinksForTitle = (title = '') => {
-  const q = encodeURIComponent(title);
-  return {
-    trailerUrl: `https://www.youtube.com/results?search_query=${q}+official+trailer`,
-    infoUrl: `https://www.justwatch.com/us/search?q=${q}`,
-  };
-};
-
-const mapTmdbMovie = (movie) => {
-  const title = String(movie?.title || movie?.name || '').trim();
-  const year = String(movie?.release_date || movie?.first_air_date || '').slice(0, 4);
-  const links = movieLinksForTitle(title);
-  return {
-    id: String(movie?.id || randomUUID()),
-    title: title || 'Untitled',
-    year: year || '--',
-    rating: Number.isFinite(movie?.vote_average) ? Number(movie.vote_average.toFixed(1)) : null,
-    poster: movie?.poster_path
-      ? `https://image.tmdb.org/t/p/w342${movie.poster_path}`
-      : 'https://placehold.co/342x513/120402/f2d6c5?text=No+Poster',
-    backdrop: movie?.backdrop_path
-      ? `https://image.tmdb.org/t/p/w1280${movie.backdrop_path}`
-      : 'https://placehold.co/1280x720/120402/f2d6c5?text=Movie',
-    overview: String(movie?.overview || 'No overview available.').slice(0, 280),
-    ...links,
-    type: 'movie',
-  };
-};
-
-const fetchTmdbMovies = async (path) => {
-  const base = `https://api.themoviedb.org/3${path}`;
-  const headers = { Accept: 'application/json' };
-  const url = TMDB_KEY && TMDB_KEY.startsWith('eyJ')
-    ? `${base}?language=en-US&page=1`
-    : `${base}?language=en-US&page=1&api_key=${encodeURIComponent(TMDB_KEY)}`;
-
-  if (TMDB_KEY && TMDB_KEY.startsWith('eyJ')) {
-    headers.Authorization = `Bearer ${TMDB_KEY}`;
-  }
-
-  const response = await fetch(url, { headers, signal: AbortSignal.timeout(9000) });
-  if (!response.ok) throw new Error(`TMDB request failed (${response.status})`);
-  const payload = await response.json().catch(() => ({}));
-  const items = Array.isArray(payload?.results) ? payload.results.map(mapTmdbMovie) : [];
-  return items.filter((item) => item.title && item.poster).slice(0, 20);
-};
-
-const getFallbackMovieFeed = () => {
-  const items = MOVIE_FALLBACK_ITEMS.map((m) => ({ ...m, ...movieLinksForTitle(m.title), type: 'movie' }));
-  return {
-    ok: true,
-    source: 'fallback',
-    featured: items[0],
-    sections: [
-      { id: 'recommended', title: 'Recommended For You', items },
-      { id: 'trending', title: 'Trending Now', items: [...items].reverse() },
-      { id: 'popular', title: 'Popular Movies', items },
-    ],
-  };
-};
-
-const PLAYABLE_VIDEO_EXTENSIONS = new Set(['.mp4', '.webm', '.ogg', '.m4v', '.mov']);
-
-async function loadMoviesMetadata() {
-  try {
-    const raw = await readFile(MOVIES_LIBRARY_FILE, 'utf8');
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed;
-  } catch {
-    return [];
-  }
-}
-
-async function getLocalMoviesLibrary() {
-  const metadataRows = await loadMoviesMetadata();
-  const metadataByFile = new Map();
-
-  for (const row of metadataRows) {
-    if (!row || typeof row.file !== 'string') continue;
-    metadataByFile.set(row.file.toLowerCase(), row);
-  }
-
-  let files = [];
-  try {
-    files = await readdir(PUBLIC_MOVIES_DIR);
-  } catch {
-    files = [];
-  }
-
-  const items = [];
-  for (const file of files) {
-    const ext = extname(file).toLowerCase();
-    if (!PLAYABLE_VIDEO_EXTENSIONS.has(ext)) continue;
-
-    const absolute = join(PUBLIC_MOVIES_DIR, file);
-    let fileStat = null;
-    try {
-      fileStat = await stat(absolute);
-    } catch {
-      continue;
-    }
-    if (!fileStat.isFile()) continue;
-
-    const meta = metadataByFile.get(file.toLowerCase()) || {};
-    const base = basename(file, ext);
-    const cleanedTitle = base
-      .replace(/[._-]+/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-
-    items.push({
-      id: `local-${file.toLowerCase()}`,
-      title: typeof meta.title === 'string' && meta.title.trim() ? meta.title.trim() : cleanedTitle,
-      year: typeof meta.year === 'string' ? meta.year : '--',
-      rating: Number.isFinite(meta.rating) ? Number(meta.rating) : null,
-      overview: typeof meta.overview === 'string' ? meta.overview : 'Local downloaded movie file.',
-      poster: typeof meta.poster === 'string' && meta.poster.trim()
-        ? meta.poster
-        : 'https://placehold.co/342x513/1a1a1a/d0d0d0?text=Movie',
-      backdrop: typeof meta.backdrop === 'string' && meta.backdrop.trim()
-        ? meta.backdrop
-        : 'https://placehold.co/1280x720/151515/d6d6d6?text=Movie+Library',
-      videoUrl: `/movies/${encodeURIComponent(file)}`,
-      category: typeof meta.category === 'string' && meta.category.trim() ? meta.category.trim() : 'All Movies',
-      addedAt: fileStat.mtime.toISOString(),
-      source: 'local-file',
-    });
-  }
-
-  items.sort((a, b) => new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime());
-
-  const featured = items[0] || null;
-  const recentlyAdded = items.slice(0, 24);
-  const allMovies = items.slice(0, 120);
-
-  return {
-    ok: true,
-    source: 'local-library',
-    featured,
-    sections: [
-      { id: 'recent', title: 'Recently Added', items: recentlyAdded },
-      { id: 'all', title: 'All Movies', items: allMovies },
-    ],
-  };
 }
 
 const bare = process.env.BARE !== "false" ? createBareServer("/seal/") : null;
@@ -2308,15 +2061,6 @@ app.get('/api/live-users', async () => ({
   count: getLiveUserCount(),
   windowMs: LIVE_USER_WINDOW_MS,
 }));
-app.get('/api/movies/feed', async () => {
-  const library = await getLocalMoviesLibrary();
-  if (library.featured) return library;
-  return getFallbackMovieFeed();
-});
-app.get('/api/movies/library', async () => {
-  const library = await getLocalMoviesLibrary();
-  return library;
-});
 app.post('/api/more-links/status', async (req) => {
   const links = Array.isArray(req.body?.links) ? req.body.links : [];
   const items = links
