@@ -3,12 +3,12 @@ import Fastify from "fastify";
 import fastifyStatic from "@fastify/static";
 import compress from "@fastify/compress";
 import fastifyCookie from "@fastify/cookie";
-import { join, dirname } from "node:path";
+import { join, dirname, extname, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "node:http";
 import { scryptSync, timingSafeEqual, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile, readdir, stat } from "node:fs/promises";
 import { spawn, spawnSync } from "node:child_process";
 import { logging, server as wisp } from "@mercuryworkshop/wisp-js/server";
 import { createBareServer } from "@tomphttp/bare-server-node";
@@ -56,6 +56,8 @@ const DEV_STATE_DIR = join(__dirname, 'data');
 const DEV_STATE_FILE = join(DEV_STATE_DIR, 'dev-state.json');
 const IP_LOG_FILE = join(DEV_STATE_DIR, 'ip-logs.json');
 const CHAT_STATE_FILE = join(DEV_STATE_DIR, 'chat-state.json');
+const MOVIES_LIBRARY_FILE = join(DEV_STATE_DIR, 'movies.json');
+const PUBLIC_MOVIES_DIR = join(__dirname, 'public', 'movies');
 function resolveDatabaseUrl() {
   const direct = [
     process.env.DATABASE_URL,
@@ -1214,6 +1216,92 @@ const getFallbackMovieFeed = () => {
   };
 };
 
+const PLAYABLE_VIDEO_EXTENSIONS = new Set(['.mp4', '.webm', '.ogg', '.m4v', '.mov']);
+
+async function loadMoviesMetadata() {
+  try {
+    const raw = await readFile(MOVIES_LIBRARY_FILE, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed;
+  } catch {
+    return [];
+  }
+}
+
+async function getLocalMoviesLibrary() {
+  const metadataRows = await loadMoviesMetadata();
+  const metadataByFile = new Map();
+
+  for (const row of metadataRows) {
+    if (!row || typeof row.file !== 'string') continue;
+    metadataByFile.set(row.file.toLowerCase(), row);
+  }
+
+  let files = [];
+  try {
+    files = await readdir(PUBLIC_MOVIES_DIR);
+  } catch {
+    files = [];
+  }
+
+  const items = [];
+  for (const file of files) {
+    const ext = extname(file).toLowerCase();
+    if (!PLAYABLE_VIDEO_EXTENSIONS.has(ext)) continue;
+
+    const absolute = join(PUBLIC_MOVIES_DIR, file);
+    let fileStat = null;
+    try {
+      fileStat = await stat(absolute);
+    } catch {
+      continue;
+    }
+    if (!fileStat.isFile()) continue;
+
+    const meta = metadataByFile.get(file.toLowerCase()) || {};
+    const base = basename(file, ext);
+    const cleanedTitle = base
+      .replace(/[._-]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    items.push({
+      id: `local-${file.toLowerCase()}`,
+      title: typeof meta.title === 'string' && meta.title.trim() ? meta.title.trim() : cleanedTitle,
+      year: typeof meta.year === 'string' ? meta.year : '--',
+      rating: Number.isFinite(meta.rating) ? Number(meta.rating) : null,
+      overview: typeof meta.overview === 'string' ? meta.overview : 'Local downloaded movie file.',
+      poster: typeof meta.poster === 'string' && meta.poster.trim()
+        ? meta.poster
+        : 'https://placehold.co/342x513/1a1a1a/d0d0d0?text=Movie',
+      backdrop: typeof meta.backdrop === 'string' && meta.backdrop.trim()
+        ? meta.backdrop
+        : 'https://placehold.co/1280x720/151515/d6d6d6?text=Movie+Library',
+      videoUrl: `/movies/${encodeURIComponent(file)}`,
+      category: typeof meta.category === 'string' && meta.category.trim() ? meta.category.trim() : 'All Movies',
+      addedAt: fileStat.mtime.toISOString(),
+      source: 'local-file',
+    });
+  }
+
+  items.sort((a, b) => new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime());
+
+  const featured = items[0] || null;
+  const recentlyAdded = items.slice(0, 24);
+  const allMovies = items.slice(0, 120);
+
+  return {
+    ok: true,
+    source: 'local-library',
+    featured,
+    sections: [
+      { id: 'recent', title: 'Recently Added', items: recentlyAdded },
+      { id: 'all', title: 'All Movies', items: allMovies },
+    ],
+  };
+}
+
 const bare = process.env.BARE !== "false" ? createBareServer("/seal/") : null;
 logging.set_level(logging.NONE);
 
@@ -2221,33 +2309,13 @@ app.get('/api/live-users', async () => ({
   windowMs: LIVE_USER_WINDOW_MS,
 }));
 app.get('/api/movies/feed', async () => {
-  if (!TMDB_KEY) {
-    return getFallbackMovieFeed();
-  }
-
-  try {
-    const [recommended, trending, popular] = await Promise.all([
-      fetchTmdbMovies('/movie/now_playing'),
-      fetchTmdbMovies('/trending/movie/week'),
-      fetchTmdbMovies('/movie/popular'),
-    ]);
-
-    const featured = recommended[0] || trending[0] || popular[0];
-    if (!featured) return getFallbackMovieFeed();
-
-    return {
-      ok: true,
-      source: 'tmdb',
-      featured,
-      sections: [
-        { id: 'recommended', title: 'Recommended For You', items: recommended },
-        { id: 'trending', title: 'Trending Now', items: trending },
-        { id: 'popular', title: 'Popular Movies', items: popular },
-      ],
-    };
-  } catch {
-    return getFallbackMovieFeed();
-  }
+  const library = await getLocalMoviesLibrary();
+  if (library.featured) return library;
+  return getFallbackMovieFeed();
+});
+app.get('/api/movies/library', async () => {
+  const library = await getLocalMoviesLibrary();
+  return library;
 });
 app.post('/api/more-links/status', async (req) => {
   const links = Array.isArray(req.body?.links) ? req.body.links : [];
