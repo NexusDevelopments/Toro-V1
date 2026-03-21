@@ -17,6 +17,7 @@ const importGms = () => import('./pages/Apps2');
 const importSettings = () => import('./pages/Settings');
 const importUpdates = () => import('./pages/Updates');
 const importMoreLinks = () => import('./pages/MoreLinks');
+const importMovies = () => import('./pages/Movies');
 const importSearchPage = () => import('./pages/SearchPage');
 const importChatRooms = () => import('./pages/ChatRooms');
 
@@ -26,6 +27,7 @@ const Apps2 = lazyLoad(importGms);
 const Settings = lazyLoad(importSettings);
 const Updates = lazyLoad(importUpdates);
 const MoreLinks = lazyLoad(importMoreLinks);
+const Movies = lazyLoad(importMovies);
 const SearchPage = lazyLoad(importSearchPage);
 const ChatRooms = lazyLoad(importChatRooms);
 const Player = lazyLoad(() => import('./pages/Player'));
@@ -36,6 +38,7 @@ initPreload('/docs', importGms);
 initPreload('/settings', importSettings);
 initPreload('/updates', importUpdates);
 initPreload('/more-links', importMoreLinks);
+initPreload('/movies', importMovies);
 initPreload('/search', importSearchPage);
 initPreload('/chat-rooms', importChatRooms);
 initPreload('/', importHome);
@@ -79,6 +82,7 @@ const ThemedApp = memo(() => {
       { path: '/docs/r', element: <Player /> },
       { path: '/search', element: <SearchPage />},
       { path: '/chat-rooms', element: <ChatRooms /> },
+      { path: '/movies', element: <Movies /> },
       { path: '/more-links', element: <MoreLinks /> },
       { path: '/settings', element: <Settings /> },
       { path: '/updates', element: <Updates /> },

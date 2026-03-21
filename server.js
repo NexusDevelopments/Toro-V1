@@ -1112,6 +1112,108 @@ async function checkLinkStatus(input) {
   }
 }
 
+const TMDB_KEY = String(process.env.TMDB_API_KEY || '').trim();
+
+const MOVIE_FALLBACK_ITEMS = [
+  {
+    id: 'fallback-1',
+    title: 'Oppenheimer',
+    year: '2023',
+    rating: 8.3,
+    poster: 'https://image.tmdb.org/t/p/w342/ptpr0kGAckfQkJeJIt8st5dglvd.jpg',
+    backdrop: 'https://image.tmdb.org/t/p/w1280/fm6KqXpk3M2HVveHwCrBSSBaO0V.jpg',
+    overview: 'The story of J. Robert Oppenheimer and the creation of the atomic bomb.',
+  },
+  {
+    id: 'fallback-2',
+    title: 'Dune: Part Two',
+    year: '2024',
+    rating: 8.2,
+    poster: 'https://image.tmdb.org/t/p/w342/8b8R8l88Qje9dn9OE8PY05Nxl1X.jpg',
+    backdrop: 'https://image.tmdb.org/t/p/w1280/xOMo8BRK7PfcJv9JCnx7s5hj0PX.jpg',
+    overview: 'Paul Atreides unites with the Fremen to seek revenge against those who destroyed his family.',
+  },
+  {
+    id: 'fallback-3',
+    title: 'The Batman',
+    year: '2022',
+    rating: 7.7,
+    poster: 'https://image.tmdb.org/t/p/w342/74xTEgt7R36Fpooo50r9T25onhq.jpg',
+    backdrop: 'https://image.tmdb.org/t/p/w1280/b0PlSFdDwbyK0cf5RxwDpaOJQvQ.jpg',
+    overview: 'Batman uncovers corruption in Gotham while pursuing the Riddler.',
+  },
+  {
+    id: 'fallback-4',
+    title: 'Spider-Man: Across the Spider-Verse',
+    year: '2023',
+    rating: 8.4,
+    poster: 'https://image.tmdb.org/t/p/w342/8Vt6mWEReuy4Of61Lnj5Xj704m8.jpg',
+    backdrop: 'https://image.tmdb.org/t/p/w1280/4HodYYKEIsGOdinkGi2Ucz6X9i0.jpg',
+    overview: 'Miles Morales catapults across the Multiverse in an epic animated adventure.',
+  },
+];
+
+const movieLinksForTitle = (title = '') => {
+  const q = encodeURIComponent(title);
+  return {
+    trailerUrl: `https://www.youtube.com/results?search_query=${q}+official+trailer`,
+    infoUrl: `https://www.justwatch.com/us/search?q=${q}`,
+  };
+};
+
+const mapTmdbMovie = (movie) => {
+  const title = String(movie?.title || movie?.name || '').trim();
+  const year = String(movie?.release_date || movie?.first_air_date || '').slice(0, 4);
+  const links = movieLinksForTitle(title);
+  return {
+    id: String(movie?.id || randomUUID()),
+    title: title || 'Untitled',
+    year: year || '--',
+    rating: Number.isFinite(movie?.vote_average) ? Number(movie.vote_average.toFixed(1)) : null,
+    poster: movie?.poster_path
+      ? `https://image.tmdb.org/t/p/w342${movie.poster_path}`
+      : 'https://placehold.co/342x513/120402/f2d6c5?text=No+Poster',
+    backdrop: movie?.backdrop_path
+      ? `https://image.tmdb.org/t/p/w1280${movie.backdrop_path}`
+      : 'https://placehold.co/1280x720/120402/f2d6c5?text=Movie',
+    overview: String(movie?.overview || 'No overview available.').slice(0, 280),
+    ...links,
+    type: 'movie',
+  };
+};
+
+const fetchTmdbMovies = async (path) => {
+  const base = `https://api.themoviedb.org/3${path}`;
+  const headers = { Accept: 'application/json' };
+  const url = TMDB_KEY && TMDB_KEY.startsWith('eyJ')
+    ? `${base}?language=en-US&page=1`
+    : `${base}?language=en-US&page=1&api_key=${encodeURIComponent(TMDB_KEY)}`;
+
+  if (TMDB_KEY && TMDB_KEY.startsWith('eyJ')) {
+    headers.Authorization = `Bearer ${TMDB_KEY}`;
+  }
+
+  const response = await fetch(url, { headers, signal: AbortSignal.timeout(9000) });
+  if (!response.ok) throw new Error(`TMDB request failed (${response.status})`);
+  const payload = await response.json().catch(() => ({}));
+  const items = Array.isArray(payload?.results) ? payload.results.map(mapTmdbMovie) : [];
+  return items.filter((item) => item.title && item.poster).slice(0, 20);
+};
+
+const getFallbackMovieFeed = () => {
+  const items = MOVIE_FALLBACK_ITEMS.map((m) => ({ ...m, ...movieLinksForTitle(m.title), type: 'movie' }));
+  return {
+    ok: true,
+    source: 'fallback',
+    featured: items[0],
+    sections: [
+      { id: 'recommended', title: 'Recommended For You', items },
+      { id: 'trending', title: 'Trending Now', items: [...items].reverse() },
+      { id: 'popular', title: 'Popular Movies', items },
+    ],
+  };
+};
+
 const bare = process.env.BARE !== "false" ? createBareServer("/seal/") : null;
 logging.set_level(logging.NONE);
 
@@ -2118,6 +2220,35 @@ app.get('/api/live-users', async () => ({
   count: getLiveUserCount(),
   windowMs: LIVE_USER_WINDOW_MS,
 }));
+app.get('/api/movies/feed', async () => {
+  if (!TMDB_KEY) {
+    return getFallbackMovieFeed();
+  }
+
+  try {
+    const [recommended, trending, popular] = await Promise.all([
+      fetchTmdbMovies('/movie/now_playing'),
+      fetchTmdbMovies('/trending/movie/week'),
+      fetchTmdbMovies('/movie/popular'),
+    ]);
+
+    const featured = recommended[0] || trending[0] || popular[0];
+    if (!featured) return getFallbackMovieFeed();
+
+    return {
+      ok: true,
+      source: 'tmdb',
+      featured,
+      sections: [
+        { id: 'recommended', title: 'Recommended For You', items: recommended },
+        { id: 'trending', title: 'Trending Now', items: trending },
+        { id: 'popular', title: 'Popular Movies', items: popular },
+      ],
+    };
+  } catch {
+    return getFallbackMovieFeed();
+  }
+});
 app.post('/api/more-links/status', async (req) => {
   const links = Array.isArray(req.body?.links) ? req.body.links : [];
   const items = links
