@@ -751,20 +751,58 @@ const normalizeRoomName = (room) =>
     .replace(/\s+/g, '-')
     .slice(0, 24);
 
+const getOrCreatePgStateClient = async () => {
+  if (!DATABASE_URL) return null;
+  if (pgStateClient) return pgStateClient;
+
+  const pgModule = await import('pg');
+  const Client = pgModule.Client || pgModule.default?.Client;
+  if (!Client) throw new Error('pg Client export not found');
+
+  const client = new Client({
+    connectionString: DATABASE_URL,
+    ssl: DATABASE_URL.includes('sslmode=disable') ? false : { rejectUnauthorized: false },
+  });
+  await client.connect();
+  await client.query(
+    'CREATE TABLE IF NOT EXISTS app_state (state_key TEXT PRIMARY KEY, state_value JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())'
+  );
+
+  pgStateClient = client;
+  return client;
+};
+
+const persistChatState = async () => {
+  const payload = { rooms: chatState.rooms };
+
+  if (DATABASE_URL) {
+    try {
+      const client = await getOrCreatePgStateClient();
+      if (client) {
+        await client.query(
+          'INSERT INTO app_state (state_key, state_value, updated_at) VALUES ($1, $2::jsonb, NOW()) ON CONFLICT (state_key) DO UPDATE SET state_value = EXCLUDED.state_value, updated_at = NOW()',
+          ['chat_state', JSON.stringify(payload)]
+        );
+        return;
+      }
+    } catch (err) {
+      console.error('Failed to persist chat state to Postgres; falling back to file:', err?.message || err);
+    }
+  }
+
+  try {
+    await mkdir(DEV_STATE_DIR, { recursive: true });
+    await writeFile(CHAT_STATE_FILE, JSON.stringify(payload, null, 2), 'utf8');
+  } catch (err) {
+    console.error('Failed to persist chat state:', err);
+  }
+};
+
 const scheduleChatSave = () => {
   if (chatSaveTimer) return;
   chatSaveTimer = setTimeout(async () => {
     chatSaveTimer = null;
-    try {
-      await mkdir(DEV_STATE_DIR, { recursive: true });
-      await writeFile(
-        CHAT_STATE_FILE,
-        JSON.stringify({ rooms: chatState.rooms }, null, 2),
-        'utf8',
-      );
-    } catch (err) {
-      console.error('Failed to persist chat state:', err);
-    }
+    await persistChatState();
   }, 1000);
 };
 
@@ -796,30 +834,49 @@ const roomPresence = (room) => {
 };
 
 async function loadChatState() {
+  const applyParsedChatState = (parsed) => {
+    if (!(parsed?.rooms && typeof parsed.rooms === 'object')) return;
+
+    const nextRooms = {};
+    for (const [roomName, roomData] of Object.entries(parsed.rooms)) {
+      const normalized = normalizeRoomName(roomName);
+      if (!normalized) continue;
+      const msgs = Array.isArray(roomData?.messages)
+        ? roomData.messages
+            .filter((m) => typeof m?.username === 'string' && typeof m?.ts === 'string')
+            .slice(-5000)
+            .map((m) => ({
+              id: typeof m.id === 'string' ? m.id : randomUUID(),
+              username: m.username.slice(0, 15),
+              text: typeof m.text === 'string' ? m.text.slice(0, 1200) : '',
+              image: typeof m.image === 'string' ? m.image.slice(0, 450000) : '',
+              ts: m.ts,
+            }))
+        : [];
+      nextRooms[normalized] = { name: normalized, messages: msgs };
+    }
+
+    if (Object.keys(nextRooms).length > 0) chatState.rooms = nextRooms;
+  };
+
+  if (DATABASE_URL) {
+    try {
+      const client = await getOrCreatePgStateClient();
+      if (client) {
+        const result = await client.query('SELECT state_value FROM app_state WHERE state_key = $1 LIMIT 1', ['chat_state']);
+        if (result.rows?.[0]?.state_value) {
+          applyParsedChatState(result.rows[0].state_value);
+          return;
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load chat state from Postgres; falling back to file:', err?.message || err);
+    }
+  }
+
   try {
     const raw = await readFile(CHAT_STATE_FILE, 'utf8');
-    const parsed = JSON.parse(raw);
-    if (parsed?.rooms && typeof parsed.rooms === 'object') {
-      const nextRooms = {};
-      for (const [roomName, roomData] of Object.entries(parsed.rooms)) {
-        const normalized = normalizeRoomName(roomName);
-        if (!normalized) continue;
-        const msgs = Array.isArray(roomData?.messages)
-          ? roomData.messages
-              .filter((m) => typeof m?.username === 'string' && typeof m?.ts === 'string')
-              .slice(-5000)
-              .map((m) => ({
-                id: typeof m.id === 'string' ? m.id : randomUUID(),
-                username: m.username.slice(0, 15),
-                text: typeof m.text === 'string' ? m.text.slice(0, 1200) : '',
-                image: typeof m.image === 'string' ? m.image.slice(0, 450000) : '',
-                ts: m.ts,
-              }))
-          : [];
-        nextRooms[normalized] = { name: normalized, messages: msgs };
-      }
-      if (Object.keys(nextRooms).length > 0) chatState.rooms = nextRooms;
-    }
+    applyParsedChatState(JSON.parse(raw));
   } catch {
     // No persisted chat state file yet.
   }
