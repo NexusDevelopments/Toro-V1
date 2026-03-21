@@ -103,8 +103,34 @@ const ThemedApp = memo(() => {
         position: relative;
         z-index: 1;
       }
+
+      ${options.backdropBlur === false ? `
+      .glassButton,
+      .glassIconButton,
+      .appsSearchColor,
+      .searchBarColor,
+      .searchResultStyle {
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+      }` : ''}
+
+      ${options.hoverTransforms === false ? `
+      .glassButton:hover,
+      .glassIconButton:hover,
+      .appsSearchColor:focus-within {
+        transform: none !important;
+      }` : ''}
+
+      ${options.animationsEnabled === false ? `
+      *, *::before, *::after {
+        animation: none !important;
+        transition: none !important;
+      }
+      .route-fade-enter {
+        animation: none !important;
+      }` : ''}
     `;
-  }, [options.siteTextColor, options.bgColor]);
+  }, [options.animationsEnabled, options.backdropBlur, options.bgColor, options.hoverTransforms, options.siteTextColor]);
 
   return (
     <>
