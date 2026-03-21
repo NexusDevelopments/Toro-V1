@@ -89,6 +89,7 @@ let ipLogSaveTimer = null;
 let chatSaveTimer = null;
 const tunnelProcesses = new Map();
 const CHAT_USER_TTL_MS = 120000;
+const LIVE_USER_WINDOW_MS = 120000;
 const BAD_WORDS = (process.env.CHAT_BLOCKED_WORDS || 'fuck,shit,bitch,asshole,cunt,porn,sex')
   .split(',')
   .map((w) => w.trim().toLowerCase())
@@ -968,6 +969,23 @@ function recordIp(req) {
   e.visits.push({ ts: new Date().toISOString(), method: req.method, path: req.url });
   if (e.visits.length > 500) e.visits.shift();
   scheduleIpLogSave();
+}
+
+function getLiveUserCount() {
+  const now = Date.now();
+  let count = 0;
+
+  for (const [, entry] of ipLog) {
+    const visits = Array.isArray(entry?.visits) ? entry.visits : [];
+    const lastVisit = visits.length > 0 ? visits[visits.length - 1] : null;
+    const lastTs = Date.parse(lastVisit?.ts || '');
+
+    if (Number.isFinite(lastTs) && now - lastTs <= LIVE_USER_WINDOW_MS) {
+      count += 1;
+    }
+  }
+
+  return count;
 }
 
 function normalizeStatusLink(input) {
@@ -2038,6 +2056,11 @@ app.get("/js/script.js", proxy(() => "https://byod.privatedns.org/js/script.js")
 app.get("/ds", (req, res) => res.redirect("https://discord.gg/ZBef7HnAeg"));
 app.get('/health', async () => ({ ok: true }));
 app.get('/api/updates', async () => devState.updates);
+app.get('/api/live-users', async () => ({
+  ok: true,
+  count: getLiveUserCount(),
+  windowMs: LIVE_USER_WINDOW_MS,
+}));
 app.post('/api/more-links/status', async (req) => {
   const links = Array.isArray(req.body?.links) ? req.body.links : [];
   const items = links
