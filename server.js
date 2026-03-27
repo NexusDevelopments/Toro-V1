@@ -84,7 +84,12 @@ function resolveDatabaseUrl() {
 
 const DATABASE_URL = resolveDatabaseUrl();
 const IS_RAILWAY = Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID);
+const MONGODB_URI = String(process.env.MONGODB_URI || process.env.MONGODB_ATLAS_URI || process.env.MONGO_URL || '').trim();
+const MONGODB_DB_NAME = String(process.env.MONGODB_DB_NAME || process.env.MONGO_DB_NAME || 'toro_v1').trim();
 let pgStateClient = null;
+let mongoDbPromise = null;
+let mongoUnavailableUntil = 0;
+let mongoFailureLoggedAt = 0;
 let ipLogSaveTimer = null;
 let chatSaveTimer = null;
 const tunnelProcesses = new Map();
@@ -94,6 +99,114 @@ const BAD_WORDS = (process.env.CHAT_BLOCKED_WORDS || 'fuck,shit,bitch,asshole,cu
   .split(',')
   .map((w) => w.trim().toLowerCase())
   .filter(Boolean);
+
+async function getMongoDb() {
+  if (!MONGODB_URI) return null;
+  if (Date.now() < mongoUnavailableUntil) return null;
+  if (mongoDbPromise) return mongoDbPromise;
+
+  mongoDbPromise = (async () => {
+    const mongoModule = await import('mongodb');
+    const MongoClient = mongoModule.MongoClient || mongoModule.default?.MongoClient;
+    if (!MongoClient) throw new Error('mongodb MongoClient export not found');
+
+    const client = new MongoClient(MONGODB_URI, {
+      maxPoolSize: 10,
+      serverSelectionTimeoutMS: 1200,
+      connectTimeoutMS: 1200,
+      socketTimeoutMS: 1500,
+    });
+    await client.connect();
+    mongoUnavailableUntil = 0;
+    return client.db(MONGODB_DB_NAME || 'toro_v1');
+  })();
+
+  try {
+    return await mongoDbPromise;
+  } catch (err) {
+    mongoDbPromise = null;
+    mongoUnavailableUntil = Date.now() + 60000;
+    const now = Date.now();
+    if (now - mongoFailureLoggedAt > 30000) {
+      mongoFailureLoggedAt = now;
+      console.error('MongoDB connect failed; using fallback backend for 60s:', err?.message || err);
+    }
+    return null;
+  }
+}
+
+async function readMongoState(stateKey) {
+  try {
+    const db = await getMongoDb();
+    if (!db) return null;
+    const doc = await db.collection('app_state').findOne({ _id: stateKey });
+    return doc?.stateValue ?? null;
+  } catch (err) {
+    const now = Date.now();
+    if (now - mongoFailureLoggedAt > 30000) {
+      mongoFailureLoggedAt = now;
+      console.error(`Failed to load ${stateKey} from MongoDB; falling back:`, err?.message || err);
+    }
+    return null;
+  }
+}
+
+async function writeMongoState(stateKey, stateValue) {
+  try {
+    const db = await getMongoDb();
+    if (!db) return { ok: false, backend: 'none', error: 'MongoDB not configured' };
+    await db.collection('app_state').updateOne(
+      { _id: stateKey },
+      {
+        $set: {
+          stateValue,
+          updatedAt: new Date(),
+        },
+      },
+      { upsert: true },
+    );
+    return { ok: true, backend: 'mongodb' };
+  } catch (err) {
+    const now = Date.now();
+    if (now - mongoFailureLoggedAt > 30000) {
+      mongoFailureLoggedAt = now;
+      console.error(`Failed to persist ${stateKey} to MongoDB; falling back:`, err?.message || err);
+    }
+    return { ok: false, backend: 'none', error: err?.message || String(err) };
+  }
+}
+
+async function getPgStateClient() {
+  if (!DATABASE_URL) return null;
+  if (pgStateClient) return pgStateClient;
+
+  const pgModule = await import('pg');
+  const Client = pgModule.Client || pgModule.default?.Client;
+  if (!Client) throw new Error('pg Client export not found');
+
+  const client = new Client({
+    connectionString: DATABASE_URL,
+    ssl: DATABASE_URL.includes('sslmode=disable') ? false : { rejectUnauthorized: false },
+  });
+  await client.connect();
+  await client.query(
+    'CREATE TABLE IF NOT EXISTS app_state (state_key TEXT PRIMARY KEY, state_value JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())'
+  );
+  pgStateClient = client;
+  return client;
+}
+
+function getPersistableDevState() {
+  return {
+    maintenanceEnabled: devState.maintenanceEnabled,
+    maintenanceMessage: devState.maintenanceMessage,
+    links: devState.links,
+    updates: devState.updates,
+    pendingUpdates: devState.pendingUpdates,
+    releaseDate: devState.releaseDate,
+    bulkLinksCooldownUntil: devState.bulkLinksCooldownUntil,
+  };
+}
 
 const SITE_NAME_THEME_MAP = {
   education: {
@@ -532,25 +645,11 @@ async function loadDevState() {
     }
   };
 
-  const getPgStateClient = async () => {
-    if (!DATABASE_URL) return null;
-    if (pgStateClient) return pgStateClient;
-
-    const pgModule = await import('pg');
-    const Client = pgModule.Client || pgModule.default?.Client;
-    if (!Client) throw new Error('pg Client export not found');
-
-    const client = new Client({
-      connectionString: DATABASE_URL,
-      ssl: DATABASE_URL.includes('sslmode=disable') ? false : { rejectUnauthorized: false },
-    });
-    await client.connect();
-    await client.query(
-      'CREATE TABLE IF NOT EXISTS app_state (state_key TEXT PRIMARY KEY, state_value JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())'
-    );
-    pgStateClient = client;
-    return client;
-  };
+  const mongoState = await readMongoState('dev_state');
+  if (mongoState && typeof mongoState === 'object') {
+    applyParsedDevState(mongoState);
+    return;
+  }
 
   // Prefer Postgres when DATABASE_URL is configured so state survives Railway deploys.
   if (DATABASE_URL) {
@@ -577,37 +676,19 @@ async function loadDevState() {
 }
 
 async function saveDevState() {
+  const nextDevState = getPersistableDevState();
+
+  const mongoWrite = await writeMongoState('dev_state', nextDevState);
+  if (mongoWrite.ok) {
+    return mongoWrite;
+  }
+
   if (DATABASE_URL) {
     try {
-      if (!pgStateClient) {
-        const pgModule = await import('pg');
-        const Client = pgModule.Client || pgModule.default?.Client;
-        if (!Client) throw new Error('pg Client export not found');
-
-        pgStateClient = new Client({
-          connectionString: DATABASE_URL,
-          ssl: DATABASE_URL.includes('sslmode=disable') ? false : { rejectUnauthorized: false },
-        });
-        await pgStateClient.connect();
-      }
-
-      await pgStateClient.query(
-        'CREATE TABLE IF NOT EXISTS app_state (state_key TEXT PRIMARY KEY, state_value JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())'
-      );
-      await pgStateClient.query(
+      const client = await getPgStateClient();
+      await client.query(
         'INSERT INTO app_state (state_key, state_value, updated_at) VALUES ($1, $2::jsonb, NOW()) ON CONFLICT (state_key) DO UPDATE SET state_value = EXCLUDED.state_value, updated_at = NOW()',
-        [
-          'dev_state',
-          JSON.stringify({
-            maintenanceEnabled: devState.maintenanceEnabled,
-            maintenanceMessage: devState.maintenanceMessage,
-            links: devState.links,
-            updates: devState.updates,
-            pendingUpdates: devState.pendingUpdates,
-            releaseDate: devState.releaseDate,
-            bulkLinksCooldownUntil: devState.bulkLinksCooldownUntil,
-          }),
-        ]
+        ['dev_state', JSON.stringify(nextDevState)]
       );
       return { ok: true, backend: 'postgres' };
     } catch (err) {
@@ -619,19 +700,7 @@ async function saveDevState() {
     await mkdir(DEV_STATE_DIR, { recursive: true });
     await writeFile(
       DEV_STATE_FILE,
-      JSON.stringify(
-        {
-          maintenanceEnabled: devState.maintenanceEnabled,
-          maintenanceMessage: devState.maintenanceMessage,
-          links: devState.links,
-          updates: devState.updates,
-          pendingUpdates: devState.pendingUpdates,
-          releaseDate: devState.releaseDate,
-          bulkLinksCooldownUntil: devState.bulkLinksCooldownUntil,
-        },
-        null,
-        2,
-      ),
+      JSON.stringify(nextDevState, null, 2),
       'utf8',
     );
     return { ok: true, backend: 'file' };
@@ -643,6 +712,9 @@ async function saveDevState() {
 
 if (IS_RAILWAY && !DATABASE_URL) {
   console.warn('No Postgres URL found. Configure DATABASE_URL/POSTGRES_URL in Railway so updates and links persist across deploys.');
+}
+if (!MONGODB_URI && !DATABASE_URL) {
+  console.warn('No MongoDB or Postgres URL found. Configure MONGODB_URI (Atlas) for persistent state on Vercel.');
 }
 
 await loadDevState();
@@ -667,6 +739,30 @@ setInterval(async () => {
 }, 30000);
 
 async function loadIpLogs() {
+  const mongoRows = await readMongoState('ip_logs');
+  if (Array.isArray(mongoRows)) {
+    for (const row of mongoRows) {
+      if (!row || typeof row.ip !== 'string') continue;
+      const visits = Array.isArray(row.visits)
+        ? row.visits
+            .filter((v) => typeof v?.ts === 'string' && typeof v?.method === 'string' && typeof v?.path === 'string')
+            .slice(-500)
+        : [];
+
+      ipLog.set(row.ip, {
+        city: typeof row.city === 'string' ? row.city : '',
+        state: typeof row.state === 'string' ? row.state : '',
+        country: typeof row.country === 'string' ? row.country : '',
+        vpn: typeof row.vpn === 'boolean' ? row.vpn : null,
+        isp: typeof row.isp === 'string' ? row.isp : '',
+        geoFetched: !!row.geoFetched,
+        device: typeof row.device === 'string' ? row.device : 'Unknown',
+        visits,
+      });
+    }
+    return;
+  }
+
   try {
     const raw = await readFile(IP_LOG_FILE, 'utf8');
     const parsed = JSON.parse(raw);
@@ -697,22 +793,26 @@ async function loadIpLogs() {
 }
 
 async function saveIpLogs() {
+  const rows = [];
+  for (const [ip, d] of ipLog) {
+    rows.push({
+      ip,
+      city: d.city || '',
+      state: d.state || '',
+      country: d.country || '',
+      vpn: d.vpn,
+      isp: d.isp || '',
+      geoFetched: !!d.geoFetched,
+      device: d.device || 'Unknown',
+      visits: Array.isArray(d.visits) ? d.visits.slice(-500) : [],
+    });
+  }
+
+  const mongoWrite = await writeMongoState('ip_logs', rows);
+  if (mongoWrite.ok) return;
+
   try {
     await mkdir(DEV_STATE_DIR, { recursive: true });
-    const rows = [];
-    for (const [ip, d] of ipLog) {
-      rows.push({
-        ip,
-        city: d.city || '',
-        state: d.state || '',
-        country: d.country || '',
-        vpn: d.vpn,
-        isp: d.isp || '',
-        geoFetched: !!d.geoFetched,
-        device: d.device || 'Unknown',
-        visits: Array.isArray(d.visits) ? d.visits.slice(-500) : [],
-      });
-    }
     await writeFile(IP_LOG_FILE, JSON.stringify(rows, null, 2), 'utf8');
   } catch (err) {
     console.error('Failed to persist IP logs:', err);
@@ -755,16 +855,7 @@ const scheduleChatSave = () => {
   if (chatSaveTimer) return;
   chatSaveTimer = setTimeout(async () => {
     chatSaveTimer = null;
-    try {
-      await mkdir(DEV_STATE_DIR, { recursive: true });
-      await writeFile(
-        CHAT_STATE_FILE,
-        JSON.stringify({ rooms: chatState.rooms }, null, 2),
-        'utf8',
-      );
-    } catch (err) {
-      console.error('Failed to persist chat state:', err);
-    }
+    await saveChatState();
   }, 1000);
 };
 
@@ -796,6 +887,32 @@ const roomPresence = (room) => {
 };
 
 async function loadChatState() {
+  const mongoState = await readMongoState('chat_state');
+  if (mongoState?.rooms && typeof mongoState.rooms === 'object') {
+    const nextRooms = {};
+    for (const [roomName, roomData] of Object.entries(mongoState.rooms)) {
+      const normalized = normalizeRoomName(roomName);
+      if (!normalized) continue;
+      const msgs = Array.isArray(roomData?.messages)
+        ? roomData.messages
+            .filter((m) => typeof m?.username === 'string' && typeof m?.ts === 'string')
+            .slice(-5000)
+            .map((m) => ({
+              id: typeof m.id === 'string' ? m.id : randomUUID(),
+              username: m.username.slice(0, 15),
+              text: typeof m.text === 'string' ? m.text.slice(0, 1200) : '',
+              image: typeof m.image === 'string' ? m.image.slice(0, 450000) : '',
+              ts: m.ts,
+            }))
+        : [];
+      nextRooms[normalized] = { name: normalized, messages: msgs };
+    }
+    if (Object.keys(nextRooms).length > 0) {
+      chatState.rooms = nextRooms;
+      return;
+    }
+  }
+
   try {
     const raw = await readFile(CHAT_STATE_FILE, 'utf8');
     const parsed = JSON.parse(raw);
@@ -822,6 +939,19 @@ async function loadChatState() {
     }
   } catch {
     // No persisted chat state file yet.
+  }
+}
+
+async function saveChatState() {
+  const nextChatState = { rooms: chatState.rooms };
+  const mongoWrite = await writeMongoState('chat_state', nextChatState);
+  if (mongoWrite.ok) return;
+
+  try {
+    await mkdir(DEV_STATE_DIR, { recursive: true });
+    await writeFile(CHAT_STATE_FILE, JSON.stringify(nextChatState, null, 2), 'utf8');
+  } catch (err) {
+    console.error('Failed to persist chat state:', err);
   }
 }
 

@@ -101,7 +101,7 @@ docker run -d \
 6. Deploy. The included `vercel.json` routes all traffic through `server.js`.
 
 > [!NOTE]
-> For persistent state in production on Vercel, set `DATABASE_URL` (Postgres). File-based state in `data/` is ephemeral on serverless runtimes.
+> For persistent state in production on Vercel, set `MONGODB_URI` (MongoDB Atlas). You can optionally set `MONGODB_DB_NAME` to override the default database name (`toro_v1`). File-based state in `data/` is ephemeral on serverless runtimes.
 
 ---
 

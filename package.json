@@ -34,6 +34,7 @@
     "lucide": "^0.536.0",
     "lucide-react": "^0.563.0",
     "movement.css": "^1.1.2",
+    "mongodb": "^6.19.0",
     "node-fetch": "^3.3.2",
     "nprogress": "^0.2.0",
     "pg": "^8.16.3",
