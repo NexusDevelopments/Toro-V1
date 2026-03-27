@@ -2133,23 +2133,28 @@ const app = Fastify({
 await app.register(fastifyCookie);
 await app.register(compress, { global: true, encodings: ['gzip','deflate','br'] });
 
-app.register(fastifyStatic, {
-  root: join(__dirname, "dist"),
-  prefix: "/",
-  decorateReply: true,
-  etag: true,
-  lastModified: true,
-  cacheControl: true,
-  setHeaders(res, path) {
-    if (path.endsWith(".html")) {
-      res.setHeader("Cache-Control", "no-cache, must-revalidate");
-    } else if (/\.[a-f0-9]{8,}\./.test(path)) {
-      res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
-    } else {
-      res.setHeader("Cache-Control", "public, max-age=3600");
+const DIST_DIR = join(__dirname, "dist");
+if (existsSync(DIST_DIR)) {
+  app.register(fastifyStatic, {
+    root: DIST_DIR,
+    prefix: "/",
+    decorateReply: true,
+    etag: true,
+    lastModified: true,
+    cacheControl: true,
+    setHeaders(res, path) {
+      if (path.endsWith(".html")) {
+        res.setHeader("Cache-Control", "no-cache, must-revalidate");
+      } else if (/\.[a-f0-9]{8,}\./.test(path)) {
+        res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      } else {
+        res.setHeader("Cache-Control", "public, max-age=3600");
+      }
     }
-  }
-});
+  });
+} else {
+  console.warn(`Static dist directory not found at ${DIST_DIR}. Frontend files may not be served.`);
+}
 
 if (process.env.MASQR === "true")
   app.addHook("onRequest", MasqrMiddleware);
@@ -2524,8 +2529,17 @@ const ensureAppReady = async () => {
 
 // Vercel entrypoint: route HTTP requests through Fastify without opening a TCP listener.
 export default async function vercelHandler(req, res) {
-  await ensureAppReady();
-  app.server.emit('request', req, res);
+  try {
+    await ensureAppReady();
+    app.server.emit('request', req, res);
+  } catch (err) {
+    console.error('Vercel handler startup failed:', err?.stack || err?.message || err);
+    if (!res.headersSent) {
+      res.statusCode = 500;
+      res.setHeader('content-type', 'application/json; charset=utf-8');
+    }
+    res.end(JSON.stringify({ error: 'Server startup failed' }));
+  }
 }
 
 if (!process.env.VERCEL) {
