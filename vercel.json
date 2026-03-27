@@ -3,7 +3,7 @@
   "buildCommand": "npm run build",
   "functions": {
     "server.js": {
-      "runtime": "nodejs20.x",
+      "runtime": "nodejs@20.x",
       "includeFiles": "dist/**"
     }
   },
