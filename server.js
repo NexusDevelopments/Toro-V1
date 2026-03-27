@@ -10,8 +10,6 @@ import { scryptSync, timingSafeEqual, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { spawn, spawnSync } from "node:child_process";
-import { logging, server as wisp } from "@mercuryworkshop/wisp-js/server";
-import { createBareServer } from "@tomphttp/bare-server-node";
 import { MasqrMiddleware } from "./masqr.js";
 
 dotenv.config();
@@ -1198,23 +1196,40 @@ async function checkLinkStatus(input) {
   }
 }
 
-const bare = !IS_VERCEL_RUNTIME && process.env.BARE !== "false" ? createBareServer("/seal/") : null;
+let bare = null;
 if (!IS_VERCEL_RUNTIME) {
-  logging.set_level(logging.NONE);
+  try {
+    const wispModule = await import("@mercuryworkshop/wisp-js/server");
+    const bareModule = await import("@tomphttp/bare-server-node");
 
-  Object.assign(wisp.options, {
-    dns_method: "resolve",
-    dns_servers: ["1.1.1.3", "1.0.0.3"],
-    dns_result_order: "ipv4first"
-  });
+    const wisp = wispModule.server;
+    const logging = wispModule.logging;
+    const createBareServer = bareModule.createBareServer || bareModule.default?.createBareServer || bareModule.default;
 
-  server.on("upgrade", (req, sock, head) =>
-    bare?.shouldRoute(req)
-      ? bare.routeUpgrade(req, sock, head)
-      : req.url.endsWith("/wisp/")
-        ? wisp.routeRequest(req, sock, head)
-        : sock.end()
-  );
+    if (process.env.BARE !== "false" && typeof createBareServer === "function") {
+      bare = createBareServer("/seal/");
+    }
+
+    if (wisp && logging) {
+      logging.set_level(logging.NONE);
+
+      Object.assign(wisp.options, {
+        dns_method: "resolve",
+        dns_servers: ["1.1.1.3", "1.0.0.3"],
+        dns_result_order: "ipv4first"
+      });
+
+      server.on("upgrade", (req, sock, head) =>
+        bare?.shouldRoute(req)
+          ? bare.routeUpgrade(req, sock, head)
+          : req.url.endsWith("/wisp/")
+            ? wisp.routeRequest(req, sock, head)
+            : sock.end()
+      );
+    }
+  } catch (err) {
+    console.error('Failed to initialize bare/wisp runtime:', err?.message || err);
+  }
 }
 
 const app = Fastify({
