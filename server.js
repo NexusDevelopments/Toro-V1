@@ -2383,13 +2383,30 @@ app.setNotFoundHandler((req, reply) =>
 
 // Always bind all interfaces in containers; platform-provided HOST values can be non-bindable.
 const host = "0.0.0.0";
-app
-  .listen({ port, host })
-  .then(() => console.log(`Server running on ${host}:${port}`))
-  .catch((err) => {
-    console.error('Server failed to start:', err);
-    process.exit(1);
-  });
+let appReadyPromise = null;
+
+const ensureAppReady = async () => {
+  if (!appReadyPromise) {
+    appReadyPromise = app.ready();
+  }
+  return appReadyPromise;
+};
+
+// Vercel entrypoint: route HTTP requests through Fastify without opening a TCP listener.
+export default async function vercelHandler(req, res) {
+  await ensureAppReady();
+  app.server.emit('request', req, res);
+}
+
+if (!process.env.VERCEL) {
+  app
+    .listen({ port, host })
+    .then(() => console.log(`Server running on ${host}:${port}`))
+    .catch((err) => {
+      console.error('Server failed to start:', err);
+      process.exit(1);
+    });
+}
 
 
 

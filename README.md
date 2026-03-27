@@ -91,6 +91,20 @@ docker run -d \
 
 ---
 
+#### Deploying on Vercel:
+
+1. Push this repo to GitHub.
+2. In Vercel, import the repository.
+3. Framework preset: `Other`.
+4. Build command: `npm run build`.
+5. Output directory: leave empty (server handles routing).
+6. Deploy. The included `vercel.json` routes all traffic through `server.js`.
+
+> [!NOTE]
+> For persistent state in production on Vercel, set `DATABASE_URL` (Postgres). File-based state in `data/` is ephemeral on serverless runtimes.
+
+---
+
 ### Contributors / Developers
 
 | Name          | Role               | GitHub |
