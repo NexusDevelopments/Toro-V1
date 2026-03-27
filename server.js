@@ -84,6 +84,7 @@ function resolveDatabaseUrl() {
 
 const DATABASE_URL = resolveDatabaseUrl();
 const IS_RAILWAY = Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID);
+const IS_VERCEL_RUNTIME = Boolean(process.env.VERCEL);
 const MONGODB_URI = String(process.env.MONGODB_URI || process.env.MONGODB_ATLAS_URI || process.env.MONGO_URL || '').trim();
 const MONGODB_DB_NAME = String(process.env.MONGODB_DB_NAME || process.env.MONGO_DB_NAME || 'toro_v1').trim();
 let pgStateClient = null;
@@ -1197,26 +1198,29 @@ async function checkLinkStatus(input) {
   }
 }
 
-const bare = process.env.BARE !== "false" ? createBareServer("/seal/") : null;
-logging.set_level(logging.NONE);
+const bare = !IS_VERCEL_RUNTIME && process.env.BARE !== "false" ? createBareServer("/seal/") : null;
+if (!IS_VERCEL_RUNTIME) {
+  logging.set_level(logging.NONE);
 
-Object.assign(wisp.options, {
-  dns_method: "resolve",
-  dns_servers: ["1.1.1.3", "1.0.0.3"],
-  dns_result_order: "ipv4first"
-});
+  Object.assign(wisp.options, {
+    dns_method: "resolve",
+    dns_servers: ["1.1.1.3", "1.0.0.3"],
+    dns_result_order: "ipv4first"
+  });
 
-server.on("upgrade", (req, sock, head) =>
-  bare?.shouldRoute(req)
-    ? bare.routeUpgrade(req, sock, head)
-    : req.url.endsWith("/wisp/")
-      ? wisp.routeRequest(req, sock, head)
-      : sock.end()
-);
+  server.on("upgrade", (req, sock, head) =>
+    bare?.shouldRoute(req)
+      ? bare.routeUpgrade(req, sock, head)
+      : req.url.endsWith("/wisp/")
+        ? wisp.routeRequest(req, sock, head)
+        : sock.end()
+  );
+}
 
 const app = Fastify({
   serverFactory: h => {
     server.on("request", (req, res) => {
+      try {
       // Admin endpoints: bypass Fastify/static entirely so React Router never intercepts them
       const pathname = new URL(req.url || '/', 'http://local').pathname;
 
@@ -2121,6 +2125,13 @@ const app = Fastify({
       }
 
       bare?.shouldRoute(req) ? bare.routeRequest(req, res) : h(req, res);
+      } catch (err) {
+        console.error('Request handler crash:', err?.stack || err?.message || err);
+        if (!res.headersSent) {
+          res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        }
+        res.end(JSON.stringify({ error: 'Internal server error' }));
+      }
     });
     return server;
   },
